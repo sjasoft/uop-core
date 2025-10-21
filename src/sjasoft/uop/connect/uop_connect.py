@@ -12,8 +12,7 @@ def register_adaptor(db_class, db_type, is_async=False):
 
 
 class ConnectionWrapper:
-
-    def __init__(self, connect=None):
+    def __init__(self, connect: generic.GenericConnection = None):
         self._connect = connect
         self._metacontext = None
         self.reset_context()
@@ -30,8 +29,8 @@ class ConnectionWrapper:
         self.reset_context()
 
     def attr_name_map(self, disambiguated=True):
-        attrs = self.id_map('attributes').values()
-        cid_map = self.id_map('classes')
+        attrs = self.id_map("attributes").values()
+        cid_map = self.id_map("classes")
         attr_classes = defaultdict(set)
         for cls in cid_map.values():
             name = cls.name
@@ -46,8 +45,8 @@ class ConnectionWrapper:
                 if type != prev.type:
                     if disambiguated:
                         classes = attr_classes[attr.id]
-                        extra = classes[0] if classes else 'Unknown'
-                        key = f'{name}({extra})'
+                        extra = classes[0] if classes else "Unknown"
+                        key = f"{name}({extra})"
                         by_name[key] = attr
             else:
                 by_name[name] = attr
@@ -56,7 +55,6 @@ class ConnectionWrapper:
 
     def begin_transaction(self):
         self._connect.begin_transaction()
-
 
     def class_named(self, name):
         return self._metacontext.classes.by_name.get(name)
@@ -74,7 +72,9 @@ class ConnectionWrapper:
     def get_dataset(self, num_assocs=3, num_instances=10, persist_to=None):
         # assume metacontext is complete
         data = meta.WorkingContext.from_metadata(self._metacontext)
-        data.configure(num_assocs=num_assocs, num_instances=num_instances, persist_to=persist_to)
+        data.configure(
+            num_assocs=num_assocs, num_instances=num_instances, persist_to=persist_to
+        )
         return data
 
     def dataset(self, num_assocs=3, num_instances=10, persist=None):
@@ -82,7 +82,9 @@ class ConnectionWrapper:
         if persist:
             self.dbi.begin_transaction()
             persist_to = self.dbi
-        data = self.get_dataset(num_assocs=num_assocs, num_instances=num_instances, persist_to=persist_to)
+        data = self.get_dataset(
+            num_assocs=num_assocs, num_instances=num_instances, persist_to=persist_to
+        )
         if persist:
             self.dbi.commit()
         return data
@@ -91,7 +93,7 @@ class ConnectionWrapper:
         return getattr(self, name)
 
     def get_named_role(self, name):
-        role = self.name_map('roles').get(name)
+        role = self.name_map("roles").get(name)
         if not role:
             for role in self.roles():
                 if role.reverse_name == name:
@@ -99,43 +101,41 @@ class ConnectionWrapper:
         return role
 
     def get_role_named(self, name):
-        self._metacontext.get_meta_named('roles', name)
+        self._metacontext.get_meta_named("roles", name)
 
     def meta_map(self):
         data = self._metacontext.__dict__
-        kinds = {k:v for k,v in data.items() if isinstance(v, meta.ByNameId)}
-        return   {k: v.by_id for k,v in kinds.items()}
+        kinds = {k: v for k, v in data.items() if isinstance(v, meta.ByNameId)}
+        return {k: v.by_id for k, v in kinds.items()}
 
     def metacontext(self):
         return self._metacontext
 
     def non_abstract_classes(self):
-        raw = self.by_name('classes')
-        return {k:v for k,v in raw.items() if not v.is_abstract}
+        raw = self.by_name("classes")
+        return {k: v for k, v in raw.items() if not v.is_abstract}
 
     def object_attributes(self, obj_id):
         _cls = self.object_class(obj_id)
         if _cls:
             return _cls.attributes
-        raise Exception(f'No class for object {obj_id}')
+        raise Exception(f"No class for object {obj_id}")
 
     def object_class(self, obj_id):
         cid = oid.oid_class(obj_id)
-        return self.id_map('classes').get(cid)
+        return self.id_map("classes").get(cid)
 
     def object_display_info(self, obj_id):
         cid = oid.oid_class(obj_id)
-        cname = self.id_to_name('classes')(cid)
+        cname = self.id_to_name("classes")(cid)
         short = self.dbi.oid_short_form(obj_id)
-        return dict(
-            short_form=short, class_name=cname
-        )
+        return dict(short_form=short, class_name=cname)
 
     def reverse_relation(self, rel_assoc):
         oid, name, other = rel_assoc
         role = self.get_named_role(name)
         if not role:
-            raise Exception(f'no role found for {rel_assoc}')
+            raise Exception(f"no role found for {rel_assoc}")
         if name == role.name:
             return other, role.reverse_name, oid
         else:
@@ -149,7 +149,7 @@ class ConnectionWrapper:
             self._metacontext = self._connect.metacontext()
 
     def roles(self):
-        return self.name_map('roles').values()
+        return self.name_map("roles").values()
 
     def rolesets(self, obj, rids):
         getter = self.roleset_getter(obj)
@@ -170,7 +170,6 @@ class ConnectionWrapper:
     def url_to_object(self, url):
         return self.dbi.object_for_url(url, True)
 
-
     def name_map(self, kind):
         return self._metacontext.by_name(kind)
 
@@ -183,7 +182,6 @@ class ConnectionWrapper:
     def names_from_ids(self, kind, *ids):
         return self._metacontext.names_to_ids(kind)(ids)
 
-
     def name_to_id(self, kind):
         return self._metacontext.name_to_id(kind)
 
@@ -193,7 +191,7 @@ class ConnectionWrapper:
         The corresponding text form has corresponding meta object name nodes and object short form leaves.
         """
         name_map = self.id_to_name(kind)
-        unique_objects = reduce(lambda a,b: a & set(b), neighbor_dict.values(), set())
+        unique_objects = reduce(lambda a, b: a & set(b), neighbor_dict.values(), set())
         short_map = {}
         for oid in unique_objects:
             short_map[oid] = self._connect.object_short_form(self.get_object(oid))
@@ -201,64 +199,4 @@ class ConnectionWrapper:
         def short_objs(oids):
             return [short_map[o] for o in oids]
 
-        return {name_map[k]: short_objs(v) for k,v in neighbor_dict.items()}
-
-class LocalDB:
-    """
-    Gives a fully set up direct database context using uop.db_service underneeath
-    """
-
-    @classmethod
-    def db(cls, db_type='mongo', dbname='pkm_db', schemas=None, **kwargs):
-        schemas = schemas or []
-        instance  = cls(db_type, dbname, schemas=schemas, **kwargs)
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(instance.setup())
-        return instance
-
-    def __init__(self, db_type='mongo', dbname='pkm_app', tenant_id=None, schemas=None, **kwargs):
-        self._service = None
-        self._context:UOPContext = None
-        self._db_type = db_type
-        self._dbname = dbname
-        self._args = kwargs
-        self._schemas = schemas or []
-
-    async def setup(self):
-        if self._context is None:
-            self._service, self._context = await get_uop_service(
-                self._dbname, self._db_type, schemas=self._schemas, **self._args)
-        return self._context
-
-    def dbi(self):
-        return self._context.interface
-
-    def dataset(self, *args, **kwargs):
-        return self._context.dataset(*args, **kwargs)
-
-
-
-class LocalPKM(LocalDB):
-    Singleton = None
-    ConnectArgs = {}
-
-    def __init__(self, db_type='mongo', dbname='pkm_app', **kwargs):
-        super().__init__(db_type, dbname, **kwargs)
-
-    @property
-    def is_setup(self):
-        return self._context is not None
-
-    @property
-    def dbi(self):
-        if self.is_setup:
-            return self._context.interface
-        raise Exception('LocalPKM has not been set up!')
-
-    @property
-    def metadata(self):
-        if self.is_setup:
-            return self._context.metadata
-
-
-
+        return {name_map[k]: short_objs(v) for k, v in neighbor_dict.items()}

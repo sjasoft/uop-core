@@ -5,31 +5,6 @@ import asyncio
 
 
 class DirectConnection(generic.GenericConnection):
-    @classmethod
-    async def get_connection(cls, db_type, db_name, tenant_id=None, **db_params):
-        service, context = await db_service.get_uop_service(
-            db_type=db_type,
-            db_name=db_name,
-            use_async=False,
-            tenant_id=tenant_id,
-            **db_params,
-        )
-        return cls(service, context, tenant_id)
-
-    @classmethod
-    def connect(cls, db_type, db_name, tenant_id=None, **db_params):
-        loop = asyncio.get_event_loop()
-        service, context = loop.run_until_complete(
-            db_service.get_uop_service(
-                db_type=db_type,
-                db_name=db_name,
-                use_async=False,
-                tenant_id=tenant_id,
-                **db_params,
-            )
-        )
-        return cls(service, context, tenant_id)
-
     def __init__(database: Database):
         super().__init__()
         self._dbi = database

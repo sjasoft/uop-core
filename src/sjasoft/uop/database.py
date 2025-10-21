@@ -101,12 +101,12 @@ class Database(object):
 
     def metadata(self):
         return dict(
-            classes=self.classes.all(),
-            roles=self.roles.all(),
-            attributes=self.attributes.all(),
-            groups=self.groups.all(),
-            tags=self.tags.all(),
-            queries=self.queries.all(),
+            classes=self.collections.classes.all(),
+            roles=self.collections.roles.all(),
+            attributes=self.collections.attributes.all(),
+            groups=self.collections.groups.all(),
+            tags=self.collections.tags.all(),
+            queries=self.collections.queries.all(),
         )
 
     def get_metadata(self):
@@ -273,7 +273,7 @@ class Database(object):
         return role_id in self.roles
 
     def class_ok(self, cls_id):
-        return cls_id in self.classes
+        return cls_id in self.collections.classes
 
     def object_ok(self, object_id):
         cls_id = oid.oid_class(object_id)
@@ -721,8 +721,14 @@ class Database(object):
 
     def get_object_roles(self, uuid):
         "returns all role_ids that the object is subject in"
-        data = set(self.related.distinct("assoc_id", criteria=dict(subject_id=uuid)))
-        data_rev = set(self.related.distinct("assoc_id", criteria=dict(object_id=uuid)))
+        data = set(
+            self.collections.related.distinct(
+                "assoc_id", criteria=dict(subject_id=uuid)
+            )
+        )
+        data_rev = set(
+            self.collections.related.distinct("assoc_id", criteria=dict(object_id=uuid))
+        )
         return data, data_rev  # return both forward and reverse applicable roles
 
     def object_for_url(self, url, record=False, **other_fields):
@@ -907,7 +913,7 @@ class Database(object):
 
     def groups_containing_group(self, group_id):
         """get groups containing group using relations instead of directly"""
-        role_id = self.roles.by_name["contains_group"]
+        role_id = self.name_to_id("roles", "contains_group")
         func = lambda gid: self.get_roleset(gid, role_id, reverse=True)
         return recurse_set(func(group_id), func)
 
@@ -933,7 +939,7 @@ class Database(object):
         return {}
 
     def objects_in_group(self, group_id, transitive=False):
-        role_id = self.roles.by_name["group_contains"]
+        role_id = self.name_to_id("roles", "group_contains")
         groups = set(group_id)
         if transitive:
             groups.update(self.groups_in_group(group_id))
@@ -942,19 +948,19 @@ class Database(object):
 
     def group(self, oid, group_id):
         role_name = "group_contains" if self.object_ok(oid) else "contains_group"
-        role_id = self.roles.by_name[role_name]
+        role_id = self.name_to_id("roles", role_name)
         return self.relate(group_id, role_id, oid)
 
     def ungroup(self, oid, group_id):
         role_name = "group_contains" if self.object_ok(oid) else "contains_group"
-        role_id = self.roles.by_name[role_name]
+        role_id = self.name_to_id("roles", role_name)
         self.unrelate(group_id, role_id, oid)
 
     # Roles
     def get_role_related(self, role_id):
         forward = defaultdict(set)
         reversed = defaultdict(set)
-        for data in self.related.find(dict(assoc_id=role_id)):
+        for data in self.collections.related.find(dict(assoc_id=role_id)):
             subject, object = data["subject_id"], data["object_id"]
             forward[subject].add(object)
             reversed[object].add(subject)
@@ -981,7 +987,7 @@ class Database(object):
             if reverse:
                 criteria = {"object_id": subject, "assoc_id": role_id}
                 col = "subject_id"
-            res = set(self.related.find(criteria=criteria, only_cols=[col]))
+            res = set(self.collections.related.find(criteria=criteria, only_cols=[col]))
             if self._cache:
                 self._cache.set(key, res)
         return res
@@ -1027,7 +1033,7 @@ class Database(object):
         if reverse:
             key, v_key = v_key, key
 
-        for rec in self.related.find({"role": role_id}):
+        for rec in self.collections.related.find({"role": role_id}):
             res[rec[key]].add(rec[v_key])
         return res
 
