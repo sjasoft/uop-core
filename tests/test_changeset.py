@@ -8,9 +8,7 @@ from sjasoft.uopmeta import attr_info
 from sjasoft.uopmeta.schemas.predefined import pkm_schema
 from sjasoft.uopmeta.schemas.meta import (
     WorkingContext,
-    as_tuple,
     as_dict,
-    as_meta,
     Related,
 )
 from sjasoft.uopmeta import oid
@@ -216,7 +214,6 @@ def test_delete_class():
         ("grouped", list(grouped)),
         ("related", list(related)),
     ]:
-        data = [as_dict(d) for d in data]
         assoc_insert(cs, kind, data[0])
         assoc_delete(cs, kind, data[1])
     cs.delete("classes", cls.id)
@@ -272,7 +269,7 @@ def test_delete_role():
     related = dataset.random_related(role.id, obj["id"], obj["id"])
     assoc_insert(cs, "related", related)
     cs.delete("roles", role.id)
-    assertNotIn(as_tuple(related), cs.related.inserted)
+    assertNotIn(related, changeset_kind(cs, "related").inserted)
 
 
 def test_delete_group():
@@ -282,7 +279,7 @@ def test_delete_group():
     grouped = dataset.random_grouped(group.id, obj["id"])
     assoc_insert(cs, "grouped", grouped)
     cs.delete("groups", group.id)
-    assertNotIn(as_tuple(grouped), changeset_kind(cs, "grouped").inserted)
+    assertNotIn(grouped, changeset_kind(cs, "grouped").inserted)
 
 
 def test_delete_tag():
@@ -292,7 +289,7 @@ def test_delete_tag():
     tagged = dataset.random_tagged(tag.id, obj["id"])
     assoc_insert(cs, "tagged", tagged)
     crud_delete(cs, "tags", tag.id)
-    assertNotIn(as_tuple(tagged), changeset_kind(cs, "tagged").inserted)
+    assertNotIn(tagged, changeset_kind(cs, "tagged").inserted)
 
 
 def test_combination():

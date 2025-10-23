@@ -115,6 +115,14 @@ class RelatedChanges(ChangeSetComponent):
         self.inserted = {x for x in self.inserted if x.assoc_id != assoc_id}
         self.deleted = {x for x in self.deleted if x.assoc_id != assoc_id}
 
+    def delete_tag(self, tag_id):
+        test = lambda x: x == tag_id
+        self.memory_filter(test)
+
+    def delete_group(self, group_id):
+        test = lambda x: x == group_id
+        self.memory_filter(test)
+
 
 class CrudChanges(ChangeSetComponent):
     kind = "_"
@@ -237,6 +245,10 @@ class TagChanges(CrudChanges):
     def deletion_criteria(self, key, role_id):
         return {"subject_id": key, "assoc_id": role_id}
 
+    def delete(self, identifier, in_changeset=None):
+        super().delete(identifier, in_changeset)
+        in_changeset.related.delete_tag(identifier)
+
 
 class GroupChanges(CrudChanges):
     kind = "groups"
@@ -246,6 +258,10 @@ class GroupChanges(CrudChanges):
 
     def contained_criteria(self, key, role_id):
         return {"object_id": key, "assoc_id": role_id}
+
+    def delete(self, identifier, in_changeset=None):
+        super().delete(identifier, in_changeset)
+        in_changeset.related.delete_group(identifier)
 
 
 class QueryChanges(CrudChanges):
