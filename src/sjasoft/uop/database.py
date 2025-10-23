@@ -21,12 +21,12 @@ linked blocks of either actual object data (clustering) or of object references.
 """
 
 from sjasoft.uop import db_collection as db_coll
-from sjasoft.uop.collections import uop_collection_names, per_tenant_kinds
+from sjasoft.uop.collections import uop_collection_names, per_tenant_kinds, crud_kinds
 from sjasoft.uop import changeset
 from sjasoft.web.url import is_url
 from sjasoft.utils.tools import match_fields
 from sjasoft.utils.category import partition
-from sjasoft.utils.data import recurse_sets
+from sjasoft.utils.data import recurse_set
 from sjasoft.uopmeta.schemas import meta
 from sjasoft.uopmeta.schemas.meta import MetaContext, BaseModel, kind_map
 from sjasoft.utils import decorations
@@ -196,28 +196,7 @@ class Database(object):
         """
         pass
 
-    # Meta Collections and useful functions on them. In memory meta-items managed by metacontext
-
-    def meta_classes(self):
-        return self.metacontext.classes
-
-    def meta_attributes(self):
-        return self.metacontext.attributes
-
-    def meta_roles(self):
-        return self.metacontext.roles
-
-    def meta_tags(self):
-        return self.metacontext.tags
-
-    def meta_groups(self):
-        return self.metacontext.groups
-
-    def meta_queries(self):
-        return self.metacontext.queries
-
-    def meta_related(self):
-        return self.metacontext.related
+    # Meta objects useful functions
 
     def name_to_id(self, kind):
         return self.metacontext.name_to_id(kind)
@@ -463,16 +442,83 @@ class Database(object):
     def remove_collection(self, collection_name):
         pass
 
+    def apply_attribute_changes(self, changes):
+        pass
+
     def apply_changes(self, changeset):
+        extensions_to_remove = []
+
+        def delete_class(cls_id):
+            coll = self.extension(cls_id)
+            extensions_to_remove.append(coll.name)
+            criteria = changeset.classes.deletion_criteria(cls_id)
+            self.collections.related.remove(criteria)
+
+        def delete_attribute(attr_id):
+            pass
+
+        def delete_role(role_id):
+            criteria = changeset.roles.deletion_criteria(role_id)
+            self.collections.related.remove(criteria)
+
+        def delete_tag(tag_id):
+            criteria = changeset.tags.deletion_criteria(
+                tag_id, self.role_id("tag_applies")
+            )
+            self.collections.related.remove(criteria)
+
+        def delete_group(group_id):
+            containing_role_id = self.role_id("group_contains")
+            contains_criteria = changeset.groups.containing_criteria(
+                group_id, containing_role_id
+            )
+            self.collections.related.remove(contains_criteria)
+            contained_role_id = self.role_id("contains_group")
+            contained_criteria = changeset.groups.contained_criteria(
+                group_id, contained_role_id
+            )
+            self.collections.related.remove(contained_criteria)
+
+        def delete_object(object_id):
+            criteria = changeset.objects.deletion_criteria(object_id)
+            self.collections.related.remove(criteria)
+
+        def delete_query(query_id):
+            pass
+
+        delete_completions = dict(
+            classes=delete_class,
+            attributes=delete_attribute,
+            roles=delete_role,
+            tags=delete_tag,
+            groups=delete_group,
+            objects=delete_object,
+            queries=delete_query,
+        )
+
+        def apply_meta_changes(changes):
+            coll = getattr(self.collections, changes.kind)
+            for k, v in changes.inserted.items():
+                coll.inssert(**v)
+            for k, v in changes.modified.items():
+                coll.update_one(k, v)
+            for k in changes.deleted:
+                coll.remove(k)
+                delete_completions[changes.kind](k)
+
+        def apply_related_changes(changes):
+            for related in changes.inserted:
+                self.collections.related.insert(**dict(related))
+            for related in changes.deleted:
+                self.collections.related.remove(dict(related))
+
         self.begin_transaction()
-        changeset.attributes.apply_to_db(self.collections)
-        changeset.classes.apply_to_db(self.collections)
-        changeset.roles.apply_to_db(self.collections)
-        changeset.tags.apply_to_db(self.collections)
-        changeset.groups.apply_to_db(self.collections)
-        changeset.objects.apply_to_db(self.collections)
-        changeset.related.apply_to_db(self.collections)
-        changeset.queries.apply_to_db(self.collections)
+        for kind in crud_kinds:
+            apply_meta_changes(getattr(changeset, kind))
+        apply_related_changes(changeset.related)
+
+        for extension_name in extensions_to_remove:
+            self.collections.remove(extension_name)
         self.log_changes(changeset)
         self.commit()
         self.reload_metacontext()
@@ -1123,7 +1169,5 @@ class Database(object):
             else:
                 return q
 
-        evaluator = query_module.QueryEvaluator2(
-            normalized_query(query), self, self.metacontext
-        )
+        evaluator = QueryEvaluator2(normalized_query(query), self, self.metacontext)
         return await evaluator()

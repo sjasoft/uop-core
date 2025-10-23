@@ -1,123 +1,45 @@
 
-* BACKLOG Relationship to Group question.
-If relationships involving groups are present then it enables some faster entry and more powerful relationships.  This can be seen as a subset of a general implied relationship capability where X being true implies relationships Y* with X in this case being group membership.
-
-All of these cases might be much simpler with more graph algorithms implement in UOP or run against a graph database. 
-** Issues and Difficulties
-*** removal from group
-Perhaps some relationships need to be maintained for what was removed from group and the steps to do this are disjointed from the removal act and may be missed. But this isn't a big deal
-*** implementation
-Finding related items requires traversing group membership, possibly recursively, making related object operations and any other graph algoritms much more inefficient.   That is it does if the group implication is not instantiated as explicit object relationships.
-
-All implications need to be explored keyed by facts about a change of state in order to created the results of those implications or we need to do the same work in reverse on every query.
-** Group containment of groups or items as relationship
-This would require multiple "class" where class is group scans of related collection. For subgroup would need query for subject AND object "class" being metagroup.
-** Tagged as relationship
-subject - has_tag -> tag
-This one is simple non-recursive search until subtags are considered.  Which is no worse than the separate tagged table case.  
-
 * ACTIVE update async db_collection
 SCHEDULED: <2023-02-01 Wed>
 * Inbox
-** DONE standardize get_managed_collection in mongo driver
-CLOSED: [2025-10-08 Wed 23:26] SCHEDULED: <2025-10-08 Wed>
+** DONE cleanup changeset since database interaction is removed from it
+CLOSED: [2025-10-22 Wed 19:17] SCHEDULED: <2025-10-22 Wed>
 :LOGBOOK:
-- State "DONE"       from "TODO"       [2025-10-08 Wed 23:26]
+- State "DONE"       from "TODO"       [2025-10-22 Wed 19:17]
 :END:
-** DONE standardize get_managed_collection in sqlite driver
-CLOSED: [2025-10-08 Wed 23:26] SCHEDULED: <2025-10-08 Wed>
+This greatly simplifies changest logic as well.
+** DONE cleanup changeset to get rid of NoModChanges since we only use relations now for associations
+CLOSED: [2025-10-22 Wed 19:17]
 :LOGBOOK:
-- State "DONE"       from "TODO"       [2025-10-08 Wed 23:26]\
-** DONE remove driver collection modifiers for previous embedded tenant id
-CLOSED: [2025-10-09 Thu 00:42] SCHEDULED: <2025-10-09 Thu>
+- State "DONE"       from "TODO"       [2025-10-22 Wed 19:17]
+:END
+** TODO maybe bring back id fix problem solution
+The id assigned to meta objects and instances will vary from database to database.  This makes merging changes from one database to another with full semantic correctness difficult.  In particular it will give us name conflicts on meta objects.   For instances it is even worse as even after resolving semantically same class ids and applying we have sequence number portions differing.  It is ill defined waht a semantically the same instance is.
+So is merge across databases even advisable ever? 
+** TODO retest changeset
+SCHEDULED: <2025-10-23 Thu>
+** DONE do all changeset application in Database class
+CLOSED: [2025-10-22 Wed 19:20] SCHEDULED: <2025-10-23 Thu>
 :LOGBOOK:
-- State "DONE"       from "TODO"       [2025-10-09 Thu 00:42]
+- State "DONE"       from "TODO"       [2025-10-22 Wed 19:20]
 :END:
-** TODO merge Services into database.py
-SCHEDULED: <2025-10-12 Sun>
-** TODO merge db_interface into database 
-SCHEDULED: <2025-10-13 Mon>
-** DONE add transactions to mongo driver
-CLOSED: [2025-10-09 Thu 00:19] SCHEDULED: <2025-10-10 Fri>
+** TODO Instrument pytest for database injection
+SCHEDULED: <2025-10-21 Tue>
+** TODO Update and debug existing database interaction test
+SCHEDULED: <2025-10-24 Fri>
+First tests against sqlite in memory. Test the import of uop defined test pattern in the process. 
+** DONE merge Services into database.py
+CLOSED: [2025-10-21 Tue 10:18] SCHEDULED: <2025-10-12 Sun>
 :LOGBOOK:
-- State "DONE"       from "TODO"       [2025-10-09 Thu 00:19]
+- State "DONE"       from "TODO"       [2025-10-21 Tue 10:18]
 :END:
-*** chat info
-I'll help you understand MongoDB's transaction support. Let me first check what you're working with in your codebase and then provide information about MongoDB transactions.
-
-
-[1 tool called]
-
-Now let me search for more information about MongoDB transaction support to give you a comprehensive answer.
-
-
-[1 tool called]
-
-Based on your code and current MongoDB capabilities, I can see there's some outdated information in your MongoDB adapter. Let me clarify:
-
-**MongoDB DOES have transaction support** - but this is a relatively recent development:
-
-**** MongoDB Transaction Support Timeline
-
-1. **Pre-4.0 (before June 2018)**: MongoDB only supported single-document atomic operations
-2. **Version 4.0+ (June 2018)**: Added multi-document ACID transactions
-3. **Version 4.2+ (August 2019)**: Enhanced with distributed transactions across sharded clusters
-
-## Current Status
-
-Your code in `/home/samantha/work/code_uv/sjasoft-uopdb-mongo/src/sjasoft/upopdb/mongo/adaptor.py` has this comment on lines 206-213:
-
-```python
-def begin_transaction(self):
-    """
-    Mongodb doesn't have transaction support.  But we can fake it by keeping reverse information for the
-    set of changes to be imposed by processing changes.  Note that this mechanism will not handle nested txn
-    currently.  Many systems do nested txn by simply ignoring the nesting and only really committing at the
-    top level anyway.
-    """
-    pass
-```
-
-**This comment is outdated!** MongoDB has had transaction support since version 4.0.
-
-**** How to Use MongoDB Transactions
-
-Here's how you can implement proper transaction support in your MongoDB adapter:
-
-#+BEGIN_SRC python
-def begin_transaction(self):
-    """Start a MongoDB transaction session"""
-    self._session = self._client.start_session()
-    self._session.start_transaction()
-    return self._session
-
-def commit_transaction(self):
-    """Commit the current transaction"""
-    if hasattr(self, '_session') and self._session:
-        self._session.commit_transaction()
-        self._session.end_session()
-        self._session = None
-
-def rollback_transaction(self):
-    """Rollback the current transaction"""
-    if hasattr(self, '_session') and self._session:
-        self._session.abort_transaction()
-        self._session.end_session()
-        self._session = None
-#+END_SRC
-
-**** Requirements for MongoDB Transactions
-
-- MongoDB 4.0+ (for replica sets)
-- MongoDB 4.2+ (for sharded clusters)
-- WiredTiger storage engine
-- Replica set or sharded cluster (not supported on standalone instances)
-
-Your current implementation uses a "fake" transaction approach by tracking changes for rollback, which was necessary before MongoDB 4.0 but is no longer needed if you're using a recent MongoDB version.
+** DONE merge db_interface into database 
+CLOSED: [2025-10-21 Tue 10:18] SCHEDULED: <2025-10-13 Mon>
+:LOGBOOK:
+- State "DONE"       from "TODO"       [2025-10-21 Tue 10:18]
+:END:
 ** TODO create async version of new unifided database.py
 SCHEDULED: <2025-11-04 Tue>
-** TODO update async mongo driver to match
-SCHEDULED: <2025-11-09 Sun>
 * Ouery Tasks
 ** TODO ensure fetch from db correct
 * Query Tests
