@@ -1,6 +1,6 @@
-import sjasoft.uop.services as s_services
-import sjasoft.uop.async_path.services as a_services
-from sjasoft.uop.utils import ca
+import uop.core.services as s_services
+import uop.core.async_path.services as a_services
+from uop.core.utils import ca
 from sjasoft.uopmeta.schemas import meta
 from random import randint
 

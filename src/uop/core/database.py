@@ -20,9 +20,9 @@ Future database idea:
 linked blocks of either actual object data (clustering) or of object references.
 """
 
-from sjasoft.uop import db_collection as db_coll
-from sjasoft.uop.collections import uop_collection_names, per_tenant_kinds, crud_kinds
-from sjasoft.uop import changeset
+from uop.core import db_collection as db_coll
+from uop.core.collections import uop_collection_names, per_tenant_kinds, crud_kinds
+from uop.core import changeset
 from sjasoft.web.url import is_url
 from sjasoft.utils.tools import match_fields
 from sjasoft.utils.category import partition
@@ -32,9 +32,9 @@ from uop.meta.schemas.meta import MetaContext, BaseModel, kind_map
 from sjasoft.utils import decorations
 from sjasoft.utils import logging, index
 from sjasoft.utils.decorations import abstract
-from sjasoft.uop.query import Q, QueryEvaluator2
+from uop.core.query import Q, QueryEvaluator2
 from uop.meta import oid
-from sjasoft.uop.exceptions import NoSuchObject
+from uop.core.exceptions import NoSuchObject
 from collections import defaultdict
 from functools import reduce
 import time

@@ -1,15 +1,15 @@
 __author__ = "samantha"
 
 from functools import partial
-from sjasoft.uop import tenant
-from sjasoft.uop.collections import (
+from uop.core import tenant
+from uop.core.collections import (
     uop_collection_names,
     meta_kinds,
     assoc_kinds,
     per_tenant_kinds,
     cls_extension_field,
 )
-from sjasoft.uop.constraints import ConstraintViolation
+from uop.core.constraints import ConstraintViolation
 from uop.meta.schemas.meta import kind_map
 from collections import deque
 import datetime

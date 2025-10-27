@@ -1,5 +1,5 @@
-from sjasoft.uop.db_service import get_uop_service, DatabaseClass, UOPContext
-from sjasoft.uop.connect import generic
+from uop.core.db_service import get_uop_service, DatabaseClass, UOPContext
+from uop.core.connect import generic
 from uop.meta import oid
 from uop.meta.schemas import meta
 from functools import reduce

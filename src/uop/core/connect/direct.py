@@ -1,6 +1,6 @@
-from sjasoft.uop.connect import generic
-from sjasoft.uop.database import Database
-from sjasoft.uop import db_service, changeset
+from uop.core.connect import generic
+from uop.core.database import Database
+from uop.core import db_service, changeset
 import asyncio
 
 

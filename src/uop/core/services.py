@@ -1,8 +1,8 @@
 __author__ = "samantha"
 
 from collections import defaultdict
-from sjasoft.uop import db_interface
-from sjasoft.uop.database import Database
+from uop.core import db_interface
+from uop.core.database import Database
 from uop.meta.schemas.meta import core_schema, Tenant, User
 
 
@@ -104,7 +104,7 @@ class Services(object):
 
 
 if __name__ == "__main__":
-    from sjasoft.uop import db_service
+    from uop.core import db_service
 
     ser = db_service.get_service("mongo", "pkm_app")
     u = ser.login_tenant("samantha5", "g0dd3ss")

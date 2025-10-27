@@ -1,5 +1,5 @@
 from uop.meta.schemas import meta
-from sjasoft.uop.collections import crud_kinds, assoc_kinds
+from uop.core.collections import crud_kinds, assoc_kinds
 
 
 def crud_names(base):
