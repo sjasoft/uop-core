@@ -1,21 +1,17 @@
 [project]
-name = "sjasoft-uop"
+name = "uop-core"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-authors = [
-    { name = "Samantha Atkins", email = "samantha@conceptwareinc.com" }
-]
+authors = [{ name = "Samantha Atkins", email = "samantha@conceptwareinc.com" }]
 requires-python = ">=3.12"
-dependencies = [
-    "cryptography>=46.0.1",
-]
+dependencies = ["cryptography>=46.0.1"]
 
 [project.scripts]
-sjasoft-uop = "sjasoft.uop:main"
+uop = "uop.core:main"
 
 [tool.setuptools]
-package-dir = {"" = "src"}
+package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -26,8 +22,4 @@ requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [dependency-groups]
-dev = [
-    "ipykernel>=6.30.1",
-    "pytest>=8.4.2",
-    "pytest-asyncio>=1.2.0",
-]
+dev = ["ipykernel>=6.30.1", "pytest>=8.4.2", "pytest-asyncio>=1.2.0"]

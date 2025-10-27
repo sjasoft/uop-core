@@ -2,16 +2,17 @@ __author__ = "samantha"
 
 from sjasoft.utils.tools import lmap
 from sjasoft.utils.dicts import diff as dict_diff
-from sjasoft.uopmeta.oid import id_field
-from sjasoft.uop import changeset
-from sjasoft.uopmeta import attr_info
-from sjasoft.uopmeta.schemas.predefined import pkm_schema
-from sjasoft.uopmeta.schemas.meta import (
+from uop.meta.oid import id_field
+from uop.core import changeset
+from uop.meta import attr_info
+from uop.meta.schemas.predefined import pkm_schema
+from uop.meta.schemas.meta import (
     WorkingContext,
     as_dict,
     Related,
 )
-from sjasoft.uopmeta import oid
+from uop.meta import oid
+
 
 dataset = WorkingContext.from_schema(pkm_schema)
 dataset.configure(num_assocs=6)
@@ -269,6 +270,7 @@ def test_delete_role():
     related = dataset.random_related(role.id, obj["id"], obj["id"])
     assoc_insert(cs, "related", related)
     cs.delete("roles", role.id)
+
     assertNotIn(related, changeset_kind(cs, "related").inserted)
 
 
@@ -279,6 +281,7 @@ def test_delete_group():
     grouped = dataset.random_grouped(group.id, obj["id"])
     assoc_insert(cs, "grouped", grouped)
     cs.delete("groups", group.id)
+
     assertNotIn(grouped, changeset_kind(cs, "grouped").inserted)
 
 
@@ -326,6 +329,7 @@ def test_combination():
             return object_test(assoc) or class_test(assoc)
 
         should_be_in = not contains_deleted()
+
         if opposite_container:  # here to take care of dropped insert/delete
             if should_be_in:
                 if assoc not in container:

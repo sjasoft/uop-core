@@ -1,14 +1,9 @@
-
 import uop
 import os
-from sjasoft.uop import db_service
-from sjasoft.uopmeta.schemas import meta
+from uop.core import db_service
+from uop.meta.schemas import meta
 
-from sjasoft.uopmeta.schemas.predefined import pkm_schema as schema
-
-
-
-
+from uop.meta.schemas.predefined import pkm_schema as schema
 
 
 # def test_service():
@@ -17,4 +12,3 @@ from sjasoft.uopmeta.schemas.predefined import pkm_schema as schema
 #     app = get_pkm_app()
 #     assert app
 #     app2 = ensure_app(ser, app)
-

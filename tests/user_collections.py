@@ -1,13 +1,13 @@
 import asyncio
-from sjasoft.uop.mongo import mongouop
-from sjasoft.uop import db_interface as dbi
+from uop.core.mongo import mongouop
+from uop.core import db_interface as dbi
 
-db = mongouop.MongoUOP('pkm_app')
+db = mongouop.MongoUOP("pkm_app")
 
 
 async def get_metadata():
-    print('running')
-    di = await dbi.get_user_interface(db, user_id='333')
+    print("running")
+    di = await dbi.get_user_interface(db, user_id="333")
     metadata = await di.metadata()
     print(metadata)
 

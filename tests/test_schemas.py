@@ -1,6 +1,6 @@
-from sjasoft.uopmeta.schemas import meta
-from sjasoft.uop.test.testing import check_all_pass, TestContext
-from sjasoft.uopmeta.schemas.predefined import pkm_schema as schema
+from uop.meta.schemas import meta
+from uop.core.test.testing import check_all_pass, TestContext
+from uop.meta.schemas.predefined import pkm_schema as schema
 
 
 def check_subs_pass(test, base):
@@ -15,7 +15,7 @@ def check_schema(a_schema):
     assert all
     check_subs_pass(of_type(meta.Schema), a_schema)
     names = [r.name for r in a_schema.requires_schemas]
-    assert ('uop_core' in names)
+    assert "uop_core" in names
     db_form = a_schema.db_form()
     check_subs_pass(of_type(str), db_form)
     all_schemas = [a_schema]
@@ -25,6 +25,7 @@ def check_schema(a_schema):
     from_db_form = from_db[a_schema.name]
     assert from_db_form.dict() == a_schema.dict()
 
+
 def check_ensure_schema(context, a_schema):
     """
     Given that we start in context with fresh db schema should not be there originally. But once it was
@@ -33,25 +34,30 @@ def check_ensure_schema(context, a_schema):
     :param a_schema: The schema to ensure is installed
     :return: nothing. internal asserts succeed or fail.
     """
-    has_work, changes =  context.ensure_schema(a_schema)
+    has_work, changes = context.ensure_schema(a_schema)
     assert has_work
-    classes_to_add = [c['name'] for c in changes.classes.inserted.values()]
-    assert 'PersistentObject' not in classes_to_add, f'PersistentObject should have been already installed'
+    classes_to_add = [c["name"] for c in changes.classes.inserted.values()]
+    assert "PersistentObject" not in classes_to_add, (
+        f"PersistentObject should have been already installed"
+    )
     has_work, changes = context.ensure_schema(a_schema)
     assert not has_work
+
 
 def check_db_deleted(db_class, name):
     assert name not in db_class.existing_db_names()
 
+
 def test_pkm_schema():
-    db_name = ''
+    db_name = ""
     db_class = None
     with TestContext.fresh_context() as context:
-        db_name =  context.db_name
+        db_name = context.db_name
         db_class = context.db_class
         check_schema(schema)
         check_ensure_schema(context, schema)
     # check_db_deleted(db_class, db_name)
+
 
 def check_attr_completion(context):
     def cls_attrs(cls):
@@ -64,18 +70,20 @@ def check_attr_completion(context):
         supers = cls_attrs(scls) if scls else set()
         assert not (supers - attr_ids)
 
-def check_subclasses(context:meta.MetaContext):
+
+def check_subclasses(context: meta.MetaContext):
     by_id = context.classes.by_id
     by_name = context.classes.by_name
     for cid, cls in context.classes.by_id.items():
         print(cid, cls.name)
         subs = context.subclasses(cid)
         assert cid in subs
-        for sid in (subs - {cid}):
+        for sid in subs - {cid}:
             scls = by_id[sid]
             if scls.superclass:
                 ssid = by_name[scls.superclass].id
                 assert ssid in subs
+
 
 def check_config(context, num_assocs, num_instances):
     assert len(context.tagged) >= num_assocs
@@ -92,5 +100,3 @@ def check_config(context, num_assocs, num_instances):
 #     check_config(context, 3, 10)
 #     check_subclasses(context)
 #     assert context
-
-

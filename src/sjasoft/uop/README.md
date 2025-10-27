@@ -1,5 +1,0 @@
-uop
-===
-
-Universal Object Persistence
-
