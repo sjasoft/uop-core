@@ -45,7 +45,7 @@ class DatabaseCollections(object):
         for name in col_map:
             if override or not self._collections.get(name):
                 schema = kind_map.get(name)
-                self._collections[name] = self._db.get_manaded_collection(name, schema)
+                self._collections[name] = self._db.get_managed_collection(name, schema)
 
     def metadata(self):
         return {k: self._collections[k].find() for k in shared_collections}
@@ -59,11 +59,7 @@ class DatabaseCollections(object):
         return self._extensions.get[cls_id]
 
     def get(self, name, schema=None):
-        col = self._collections.get(name)
-        if not col:
-            col = self._db.get_managed_collection(name, schema)
-            self._collections[name] = col
-        return col
+        return self._collections.get(name)
 
 
 class DBCollection(object):

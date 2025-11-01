@@ -1,5 +1,4 @@
 import uop.core.services as s_services
-import uop.core.async_path.services as a_services
 from uop.core.utils import ca
 from sjasoft.uopmeta.schemas import meta
 from random import randint
@@ -63,15 +62,6 @@ class UOPContext:
             num_assocs=num_assocs, num_instances=num_instances, persist_to=persist_to
         )
         return data
-
-    async def complete_context(self, tenant_id=None, schemas=None):
-        schemas = schemas or []
-        service = await self.complete_service(tenant_id=tenant_id)
-        for schema in schemas:
-            await ca(service.ensure_schema, schema)
-        if schemas:
-            self.interface.reload_metacontext()
-        return service
 
     @classmethod
     def fresh_context(cls, db_type="mongo", **kwargs: object) -> object:

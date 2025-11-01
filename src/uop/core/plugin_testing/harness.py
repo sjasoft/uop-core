@@ -1,5 +1,6 @@
 from uop.meta.schemas import meta
 from uop.core.collections import crud_kinds, assoc_kinds
+import pytest
 
 
 def crud_names(base):
@@ -219,3 +220,14 @@ class Plugin:
         assert not self.get_kind_collection("tagged").exists(tagged4.without_kind())
         self.get_methods("roles")["delete"](another_role.id)
         assert not self.get_kind_collection("related").exists(related4.without_kind())
+
+
+@pytest.fixture
+def db_harness(db_plugin):
+    return Plugin(db_plugin)
+
+
+def test_general_db(db_harness):
+    db_harness.insert_and_check()
+    db_harness.modify_and_check()
+    db_harness.delete_and_check()

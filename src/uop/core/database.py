@@ -398,7 +398,7 @@ class Database(object):
                 self._collections.ensure_collections(
                     tenant.base_collections, override=True
                 )
-        self._collections.ensure_extensions()
+        self._collections.ensure_class_extensions()
         self._collections_complete = True
         self.reload_metacontext()
 

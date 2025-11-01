@@ -6,8 +6,6 @@ from sjasoft.utils.data import recurse_set
 from uop.core import query as query_module
 from uop.meta.schemas.meta import (
     MetaContext,
-    Grouped,
-    Tagged,
     Related,
     kind_map,
     BaseModel,
