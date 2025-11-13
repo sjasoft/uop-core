@@ -1,30 +1,8 @@
 __author__ = "samantha"
 
-from sjasoft.utils.index import make_id
 from functools import partial
-from uop.core import interface as iface
 from uop.core import db_collection as base
-from uop.core.collections import (
-    uop_collection_names,
-    meta_kinds,
-    assoc_kinds,
-    per_tenant_kinds,
-)
 
-shared_collections = meta_kinds
-
-default_collection_names = dict(
-    tags="metatag",
-    classes="metaclass",
-    attributes="metattr",
-    roles="metarole",
-    groups="metagroup",
-    queries="metaquery",
-    tagged="uop_tagged",
-    grouped="uop_grouped",
-    related="uop_related",
-    changes="changesets",
-)
 
 
 unique_field = lambda name: partial(base.UniqueField, name)
@@ -42,24 +20,13 @@ class DatabaseCollections(base.DatabaseCollections):
         cls = await self.classes.get(cls_id)
         return await self.get_class_extension(cls)
 
-    async def get_class_extension(self, cls):
-        cid = cls["id"]
-        known = self._extensions.get(cid)
-        if not known:
-            if not self._tenant_id:
-                known = cls.get("extension")
-            if not known:
-                known = await self._db.make_random_collection()
-                await self._save_class_extension(cls, known)
-            self._extensions[cid] = known
-        return known
+    async def ensure_collections(self, col_map, override=False):
+        for name in col_map:
+            if override or not self._collections.get(name):
+                schema = base.kind_map.get(name)
+                self._collections[name] = await self._db.get_managed_collection(name, schema)
 
-    async def make_random_collection(self):
-        res = index.make_id(48)
-        if not res[0].isalpha():
-            res = "x" + res
-        return await self.get_managed_collection(res)
-
+ 
     async def get(self, name):
         col = self._collections.get(name)
         if not col:
@@ -69,50 +36,6 @@ class DatabaseCollections(base.DatabaseCollections):
             self._collections[name] = col
         return col
 
-    async def _save_tenant_extensions(self, extensions):
-        await self._db.tenants().update_one(self._tenant_id, {"extensions": extensions})
-
-    async def _save_class_extension(self, cls, extension):
-        cls["extension"] = extension
-        cid = cls["id"]
-        name = extension.name
-        if self._tenant_id:
-            self._extensions[cid] = name
-            extension_names = {k: v["name"] for k, v in self._extensions.items()}
-            await self._save_tenant_extensions(extension_names)
-        else:
-            cls["extension_name"] = extension.name
-            cls["extension"] = extension
-            await self.classes.update_one(
-                cls["id"], {"extension_name": cls["extension_name"]}
-            )
-
-    async def ensure_basic_collections(self, col_map=None):
-        """
-        set up the base collections on either default collection names or
-        those passed in.  The col_map is only non-null when we have a tenant
-        which has different collection names for some of the uop_collections
-        """
-
-        def get_col_name(name):
-            col_name = name
-            if name in self._collections:
-                col_name = col_map[name]
-            elif col_name in uop_collection_names:
-                col_name = uop_collection_names[col_name]
-            return col_name
-
-        for name in shared_collections:
-            if not self._collections.get(name):
-                modifier = self._tenancy.with_tenant()
-                self._collections[name] = await self._db.get_managed_collection(
-                    get_col_name(name), modifier
-                )
-        for name in set(uop_collection_names) - set(shared_collections):
-            if not self._collections.get(name):
-                col_name = get_col_name(name)
-                col = await self._db.get_managed_collection(col_name)
-                self._collections[name] = col
 
 
 class DBCollection(base.DBCollection):
