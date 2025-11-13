@@ -55,7 +55,6 @@ class DatabaseCollections(object):
             col.drop()
 
     def class_extension(self, cls_id):
-        cls = self.classes.get(cls_id)
         return self._extensions.get[cls_id]
 
     def get(self, name, schema=None):
@@ -120,8 +119,6 @@ class DBCollection(object):
 
         return get_by_index
 
-    def with_name(self, name):
-        return self._by_name.get(name)
 
     def count(self, criteria):
         self.db_id(criteria)

@@ -41,6 +41,11 @@ class DatabaseCollections(base.DatabaseCollections):
 class DBCollection(base.DBCollection):
     """Abstract collection base."""
 
+
+    async def count(self, criteria):
+        self.db_id(criteria)
+        return await self._coll.count(criteria)
+    
     async def ensure_index(self, coll, *attr_order):
         pass
 
