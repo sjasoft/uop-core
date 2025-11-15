@@ -41,9 +41,9 @@ class DatabaseCollections(object):
                 extension = self._db.get_managed_collection(self.extension(cls), cls)
                 self._extensions[cls["id"]] = extension
 
-    def ensure_collections(self, col_map, override=False):
+    def ensure_collections(self, col_map):
         for name in col_map:
-            if override or not self._collections.get(name):
+            if not self._collections.get(name):
                 schema = kind_map.get(name)
                 self._collections[name] = self._db.get_managed_collection(name, schema)
 

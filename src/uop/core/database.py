@@ -391,13 +391,12 @@ class Database(object):
 
     def open_db(self, setup=None):
         self._collections = db_coll.DatabaseCollections(self)
-        self._collections.ensure_collections(uop_collection_names)
+        colmap = uop_collection_names
         if self._tenant_id:
             tenant: meta.Tenant = self.get_tenant(self._tenant_id)
             if tenant:
-                self._collections.ensure_collections(
-                    tenant.base_collections, override=True
-                )
+                colmap = tenant.base_collections
+        self._collections.ensure_collections(colmap)
         self._collections.ensure_class_extensions()
         self._collections_complete = True
         self.reload_metacontext()

@@ -29,6 +29,7 @@ from sjasoft.utils import cw_logging, index
 from sjasoft.utils import decorations
 from uop.core.async_path import changeset
 from uop.meta import oid
+from uop.meta.schemas import meta
 from uop.core.async_path import db_collection as db_coll
 from uop.core import interface as iface
 from sjasoft.utils.index import make_id
@@ -47,16 +48,20 @@ def objects(doclist):
 
 
 class Database(base.Database):
-    async def make_class_extension(self, cls_id):
-        res = make_id(48)
-        if not res[0].isalpha():
-            res = "x" + res
-        return await self.get_managed_collection(res)
 
-    async def get_admined_application(self, tenant_id):
-        apps = await self.applications()
-        app = await apps.find_one({"admin_tenant": tenant_id})
-        return app["_id"] if app else None
+    async def open_db(self, setup=None):
+        self._collections = db_coll.DatabaseCollections(self)
+        colmap = base.uop_collection_names
+        if self._tenant_id:
+            tenant: meta.Tenant = await self.get_tenant(self._tenant_id)
+            if tenant:
+                colmap = tenant.base_collections
+        await self._collections.ensure_collections(colmap)
+        await self._collections.ensure_class_extensions()
+        self._collections_complete = True
+
+        await self.reload_metacontext()
+
 
     async def get_tenant(self, tenant_id):
         tenants = await self.tenants()
@@ -83,10 +88,6 @@ class Database(base.Database):
     async def gew_raw_collection(self, name):
         pass
 
-    async def ensure_basic_collections(self):
-        if not self._base_collections_collected:
-            await self.ensure_setup()
-            self._base_collections_collected = True
 
     async def ensure_setup(self):
         await self.collections.ensure_basic_collections()

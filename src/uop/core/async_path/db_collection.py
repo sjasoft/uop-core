@@ -20,9 +20,9 @@ class DatabaseCollections(base.DatabaseCollections):
         cls = await self.classes.get(cls_id)
         return await self.get_class_extension(cls)
 
-    async def ensure_collections(self, col_map, override=False):
+    async def ensure_collections(self, col_map):
         for name in col_map:
-            if override or not self._collections.get(name):
+            if not self._collections.get(name):
                 schema = base.kind_map.get(name)
                 self._collections[name] = await self._db.get_managed_collection(name, schema)
 
