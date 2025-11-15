@@ -72,8 +72,6 @@ class DBCollection(object):
 
     def __init__(self, collection, indexed=False, *constraints):
         self._indexed = indexed  # Indexed in memory cache or not.
-        self._by_id = {}
-        self._by_name = {}
         self._coll = collection
         self._constraints = list(constraints)
 
@@ -103,22 +101,6 @@ class DBCollection(object):
 
     def distinct(self, key, criteria):
         return set(self.find(criteria, only_cols=[key]))
-
-    def _make_id_getter(self, key_name, the_dict):
-        def get_by_index(value):
-            obj = the_dict.get(value)
-            if not obj:
-                obj = self.find_one({key_name: value})
-                if obj:
-                    obj_id = obj["_id"]
-                    self._by_name[obj["name"]] = obj
-                    self._by_id[obj["_id"]] = obj
-                    return obj["_id"]
-            else:
-                return obj["_id"]
-
-        return get_by_index
-
 
     def count(self, criteria):
         self.db_id(criteria)

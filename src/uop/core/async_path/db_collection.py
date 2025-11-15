@@ -10,7 +10,7 @@ unique_field = lambda name: partial(base.UniqueField, name)
 
 class DatabaseCollections(base.DatabaseCollections):
     async def metadata(self):
-        return {k: await self._collections[k].find() for k in shared_collections}
+        return {k: await self._collections[k].find() for k in base.shared_collections}
 
     async def drop_collections(self, collections):
         for col in collections:
@@ -35,7 +35,7 @@ class DatabaseCollections(base.DatabaseCollections):
             )
             self._collections[name] = col
         return col
-
+ 
 
 
 class DBCollection(base.DBCollection):
@@ -56,7 +56,7 @@ class DBCollection(base.DBCollection):
         pass
 
     async def drop(self):
-        cond = self._with_tenant({})
+        cond = {}
         if cond:
             await self.remove(cond)
         else:
@@ -71,6 +71,9 @@ class DBCollection(base.DBCollection):
     async def remove(self, dict_or_key):
         pass
 
+    async def remove_all(self):
+        return await self.remove({})
+
     async def remove_instance(self, instance_id):
         return await self.remove(instance_id)
 
@@ -83,14 +86,14 @@ class DBCollection(base.DBCollection):
         return await self.find()
 
     async def ids_only(self, criteria=None):
-        return await self.find(criteria=criteria, only_cols=["_id"])
+        return await self.find(criteria=criteria, only_cols=[self.ID_Field])
 
     async def find_one(self, criteria, only_cols=None):
         res = await self.find(criteria, only_cols=only_cols, limit=1)
         return res[0] if res else None
 
     async def exists(self, criteria):
-        return await self.count(self._with_tenant(criteria))
+        return await self.count(criteria)
 
     async def contains_id(self, an_id):
         if an_id not in self._by_id:
@@ -107,14 +110,23 @@ class DBCollection(base.DBCollection):
             self._index(data)
         return data
 
+    async def all(self):
+        return await self.find()
+    g
     async def get_all(self):
         """
         Returns a dictionary of mapping record ids to records for all
         records in the collection
         :return: the mapping
         """
-        data = await self.find()
-        return {x["_id"]: x for x in data}
+        return {x["_id"]: x async for x in self.find()}
 
     async def instances(self):
         return await self.find()
+
+    async def replace_one(self, an_id, data):
+        await self._coll.replace_one({"_id": an_id}, data)
+
+    async def replace(self, object):
+        id = object.pop("id")
+        return await self.replace_one(id, object)
