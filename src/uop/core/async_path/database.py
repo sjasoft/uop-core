@@ -137,38 +137,98 @@ class Database(base.Database):
         We could log external to the main database but here we will presume that
         logging is local.
         """
-        changes = changeset.to_dict()
-        changes["timestamp"] = time.time()
-        coll = self.get_collection("changes")
-        await coll.insert(**changes)
+        changes = meta.MetaChanges(
+            timestamp=time.time(), tenant_id=tenant_id, changes=changeset.to_dict()
+        )
+        coll = self.collections.changes
+        await coll.insert(**changes.dict())
 
     async def changes_since(self, epochtime, tenant_id, client_id=None):
-        client_id = client_id or 0
-        change_coll = await self.get_managed_collection("changes")
-        changesets = await change_coll.find(
-            {"timestamp": {"$gt": epochtime}, "client_id": {"$ne": client_id}},
-            order_by=("epochtime",),
-            only_cols=("changeset",),
+        tenant_id = tenant_id or 0
+        device_id = device_id or 0
+        criteria = Q.all(Q.gt("timestamp", epochtime), Q.neq("device_id", device_id))
+        changesets = await self.collections.changes.find(
+            criteria, order_by=("timestamp",), only_cols=("changes",)
         )
-        return await changeset.ChangeSet.combine_changes(*changesets)
+        return changeset.ChangeSet.combine_changes(*changesets)
 
-    async def apply_changes(self, changeset, collections):
+    async def apply_changes(self, changeset):
+        extensions_to_remove = []
+
+        async def delete_class(cls_id):
+            coll = self.extension(cls_id)
+            extensions_to_remove.append(coll.name)
+            criteria = changeset.classes.deletion_criteria(cls_id)
+            await self.collections.related.remove(criteria)
+
+        async def delete_attribute(attr_id):
+            pass
+
+        async def delete_role(role_id):
+            criteria = changeset.roles.deletion_criteria(role_id)
+            await self.collections.related.remove(criteria)
+
+        async def delete_tag(tag_id):
+            criteria = changeset.tags.deletion_criteria(
+                tag_id, self.role_id("tag_applies")
+            )
+            await self.collections.related.remove(criteria)
+
+        async def delete_group(group_id):
+            containing_role_id = self.role_id("group_contains")
+            contains_criteria = changeset.groups.containing_criteria(
+                group_id, containing_role_id
+            )
+            await self.collections.related.remove(contains_criteria)
+            contained_role_id = self.role_id("contains_group")
+            contained_criteria = changeset.groups.contained_criteria(
+                group_id, contained_role_id
+            )
+            await self.collections.related.remove(contained_criteria)
+
+        async def delete_object(object_id):
+            criteria = changeset.objects.deletion_criteria(object_id)
+            await self.collections.related.remove(criteria)
+
+        async def delete_query(query_id):
+            pass
+
+        delete_completions = dict(
+            classes=delete_class,
+            attributes=delete_attribute,
+            roles=delete_role,
+            tags=delete_tag,
+            groups=delete_group,
+            objects=delete_object,
+            queries=delete_query,
+        )
+
+        async def apply_meta_changes(changes):
+            coll = getattr(self.collections, changes.kind)
+            for k, v in changes.inserted.items():
+                await coll.insert(**v)
+            for k, v in changes.modified.items():
+                await coll.update_one(k, v)
+            for k in changes.deleted:
+                coll.remove(k)
+                await delete_completions[changes.kind](k)
+
+        async def apply_related_changes(changes):
+            for related in changes.inserted:
+                await self.collections.related.insert(**dict(related))
+            for related in changes.deleted:
+                await self.collections.related.remove(dict(related))
+        
         self.begin_transaction()
-        # premise is that changeset and dbs conjointly
-        # no how to do this much much of the logic is
-        # changeset logic
-        await changeset.attributes.apply_to_db(collections)
-        await changeset.classes.apply_to_db(collections)
-        await changeset.roles.apply_to_db(collections)
-        await changeset.tags.apply_to_db(collections)
-        await changeset.groups.apply_to_db(collections)
-        await changeset.objects.apply_to_db(collections)
-        await changeset.tagged.apply_to_db(collections)
-        await changeset.related.apply_to_db(collections)
-        await changeset.grouped.apply_to_db(collections)
-        await changeset.queries.apply_to_db(collections)
+        for kind in base.crud_kinds:
+            await apply_meta_changes(getattr(changeset, kind))
+        apply_related_changes(changeset.related)
+
+        for extension_name in extensions_to_remove:
+            self.collections.remove(extension_name)
         await self.log_changes(changeset)
-        self.commit()
+        await self.commit()
+        await self.reload_metacontext()
 
     async def commit(self):
         await self._db.commit()
