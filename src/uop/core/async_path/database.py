@@ -217,7 +217,15 @@ class Database(base.Database):
     async def commit(self):
         await self._db.commit()
 
-    async def ensure_schema(self, a_schema):
+    async def ensure_core_schema(self):
+        await self.ensure_schema(meta.core_schema)
+
+    async def ensure_schema(self, a_schema: meta.Schema):
+        if not await self.schemas().find_one({"name": a_schema.name}):
+            await self.add_schema(a_schema)
+        await self.ensure_schema_installed(a_schema)        
+
+    async def ensure_schema_installed(self, a_schema):
         changes = changeset.meta_context_schema_diff(self.metacontext, a_schema)
         has_changes = changes.has_changes()
         if has_changes:
@@ -232,5 +240,175 @@ class Database(base.Database):
             return await coll.contains_id(object_id)
         return False
 
+    async def add_schema(self, a_schema: meta.Schema):
+        """
+        Adds a schema to the database.
+        :param a_schema: a Schema
+        :return: None
+        """
+        await self.schemas().insert(**a_schema.dict())
+
     async def extension(self, cls_id):
         return await self.collections.class_extension(cls_id)
+
+    async def add_tenant(self, tenant: meta.Tenant):
+        tenants = self.tenants()
+        tenant = tenants.insert(**tenant.dict())
+        return tenant
+
+    async def add_tenant_user(self, tenant_id: str, user_id: str):
+        await self.relate(tenant_id, self.role_id["has_user"], user_id)
+
+    async def remove_tenant_user(self, tenant_id: str, user_id: str):
+        await self.unrelate(tenant_id, self.role_id["has_user"], user_id)
+
+    async def drop_tenant(self, tenant_id):
+        """
+        Drops the tenant from the database.  This version removes their data.
+        :param tenant_id id of the tenant to remove
+        """
+        collections = self.get_tenant_collections(tenant_id)
+        if collections:
+            await self.collections.drop_collections(collections)
+
+    async def get_tenant_collections(self, tenant_id):
+        tenant = await self.get_tenant(tenant_id)
+        return tenant.base_collections
+
+    async def create_tenant(self, name=""):
+        tenant = meta.Tenant(name=name)
+        for kind in base.per_tenant_kinds:
+            tenant.base_collections[kind] = self.random_collection_name()
+        self.add_tenant(tenant)
+        return tenant
+    
+    @contextmanager
+    async def perhaps_committing(self, commit=False):
+        yield
+        if commit:
+            await self.commit()
+
+    async def start_long_transaction(self):
+        pass
+
+    async def end_long_transaction(self):
+        self._long_txn_start = 0
+
+    async def begin_transaction(self):
+        if not self._changeset:
+            self._changeset = changeset.ChangeSet()
+        in_txn = self.in_long_transaction
+        self._long_txn_start += 1
+        if not in_txn:
+            await self.start_long_transaction()
+
+    async def abort(self):
+        await self.end_transaction()
+
+
+    async def really_commit(self):
+        pass
+
+    async def commit(self):
+        if self.in_outer_transaction():
+            await self.really_commit()
+            self.end_long_transaction()
+        self.close_current_transaction()
+
+# Basic CRUD
+
+    async def insert(self, kind, **spec):
+        creator = base.kind_map[kind]
+        coll = getattr(self.collections, kind)
+        data = creator(**spec)
+        return await self.meta_insert(data)
+
+    async def upsert(self, class_name, data):
+        the_id = data.get("id")
+        m_class = self.metaclass_named(class_name)
+        m_id = m_class.id
+        extension = await self.extension(m_id)
+        if the_id and m_id == oid.oid_class(the_id):
+            await extension.replace(data)
+        else:
+            data.pop("id", None)
+            await self.create_instance_of(class_name, **data)
+
+    async def modify(self, kind, an_id, mods):
+        coll = getattr(self.collections, kind)
+        return await self.meta_modify(kind, an_id, **mods)
+
+    async def delete(self, kind, an_id):
+        coll = getattr(self.collections, kind)
+        return await self.meta_delete(kind, an_id)
+
+    async def add_class(self, **spec):
+        return await self.insert("classes", **spec)
+
+    async def modify_class(self, cls_id, **mods):
+        return await self.modify("classes", cls_id, mods)
+
+    async def delete_class(self, clsid):
+        return await self.delete("classes", clsid)  
+
+    async def add_attribute(self, **spec):
+        return await self.insert("attributes", **spec)
+
+    async def modify_attribute(self, attr_id, **mods):
+        return await self.modify("attributes", attr_id, mods)
+
+    async def delete_attribute(self, attrid):
+        return await self.delete("attributes", attrid)
+
+    async def add_role(self, **spec):
+        return await self.insert("roles", **spec)
+
+    async def modify_role(self, role_id, **mods):
+        return await self.modify("roles", role_id, mods)
+
+    async def add_role(self, **spec):
+        return await self.insert("roles", **spec)
+
+    async def modify_role(self, role_id, **mods):
+        return await self.modify("roles", role_id, mods)
+
+    async def delete_role(self, role_id):
+        return await self.delete("roles", role_id)
+
+    async def add_tag(self, **spec):
+        return await self.insert("tags", **spec)
+
+    async def modify_tag(self, tag_id, **mods):
+        return await self.modify("tags", tag_id, mods)
+
+    async def delete_tag(self, tag_id):
+        return await self.delete("tags", tag_id)
+
+    async def add_group(self, **spec):
+        return await self.insert("groups", **spec)
+
+    async def modify_group(self, group_id, **mods):
+        return await self.modify("groups", group_id, mods)
+
+    async def delete_group(self, group_id):
+        return await self.delete("groups", group_id)
+
+    async def add_object(self, obj):
+        return await self.meta_insert(obj)
+
+    async def modify_object(self, uuid, mods):
+        return await self.meta_modify("objects", uuid, **mods)
+
+    async def delete_object(self, uuid):
+        return await self.meta_delete("objects", uuid)
+
+    async def add_query(self, **spec):
+        return await self.insert("queries", **spec)
+
+    async def modify_query(self, query_id, **mods):
+        return await self.modify("queries", query_id, mods)
+
+    async def delete_query(self, query_id):
+        return await self.delete("queries", query_id)   
+    
+    

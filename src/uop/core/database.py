@@ -372,14 +372,20 @@ class Database(object):
 
     def ensure_core_schema(self):
         core_schema: meta.Schema = meta.core_schema()
-        if not self.schemas().find_one({"name": core_schema.name}):
-            self.add_schema(core_schema)
-        self.ensure_schema(meta.core_schema)
+        self.ensure_schema(core_schema)
 
     def ensure_schema(self, a_schema: meta.Schema):
         if not self.schemas().find_one({"name": a_schema.name}):
             self.add_schema(a_schema)
         self.ensure_schema_installed(a_schema)
+
+    def ensure_schema_installed(self, a_schema):
+        changes = changeset.meta_context_schema_diff(self.metacontext, a_schema)
+        has_changes = changes.has_changes()
+        if has_changes:
+            self.apply_changes(changes)
+            self.reload_metacontext()
+        return has_changes, changes        
 
     def open_db(self, setup=None):
         self._collections = db_coll.DatabaseCollections(self)
@@ -431,9 +437,6 @@ class Database(object):
         return changeset.ChangeSet.combine_changes(*changesets)
 
     def remove_collection(self, collection_name):
-        pass
-
-    def apply_attribute_changes(self, changes):
         pass
 
     def apply_changes(self, changeset):
@@ -515,16 +518,11 @@ class Database(object):
         self.reload_metacontext()
 
     # Basic CRUD
-    def _constrain(self, constrainer, data=None, criteria=None, mods=None):
-        constrainer(
-            data=data, criteria=criteria, mods=mods, is_admin=self.has_admin_user
-        )
 
     def insert(self, kind, **spec):
         creator = kind_map[kind]
         coll = getattr(self.collections, kind)
         data = creator(**spec)
-        self._constrain(coll.constrain_insert, data=data.without_kind())
         return self.meta_insert(data)
 
     def upsert(self, class_name, data):
@@ -541,12 +539,10 @@ class Database(object):
 
     def modify(self, kind, an_id, mods):
         coll = getattr(self.collections, kind)
-        self._constrain(coll.constrain_modify, criteria=an_id, mods=mods)
         return self.meta_modify(kind, an_id, **mods)
 
     def delete(self, kind, an_id):
         coll = getattr(self.collections, kind)
-        self._constrain(coll.constrain_delete, criteria=an_id)
         return self.meta_delete(kind, an_id)
 
     def add_class(self, **spec):
@@ -573,53 +569,11 @@ class Database(object):
     def modify_role(self, role_id, **mods):
         return self.modify("roles", role_id, mods)
 
-    def delete_class(self, clsid):
-        return self.delete("classes", clsid)
-
-    def add_attribute(self, **spec):
-        return self.insert("attributes", **spec)
-
-    def modify_attribute(self, attr_id, **mods):
-        return self.modify("attributes", attr_id, mods)
-
-    def delete_attribute(self, attrid):
-        return self.delete("attributes", attrid)
-
     def add_role(self, **spec):
         return self.insert("roles", **spec)
 
     def modify_role(self, role_id, **mods):
         return self.modify("roles", role_id, mods)
-
-    def delete_role(self, role_id):
-        return self.delete("roles", role_id)
-
-    def add_tag(self, **spec):
-        return self.insert("tags", **spec)
-
-    def modify_tag(self, tag_id, **mods):
-        return self.modify("tags", tag_id, mods)
-
-    def delete_tag(self, tag_id):
-        self.meta_delete("tags", tag_id)
-
-    def add_group(self, **spec):
-        return self.insert("groups", **spec)
-
-    def modify_group(self, group_id, **mods):
-        return self.modify("groups", group_id, mods)
-
-    def delete_group(self, group_id):
-        self.delete("groups", group_id)
-
-    def add_object(self, obj):
-        return self.meta_insert(obj)
-
-    def modify_object(self, uuid, mods):
-        self.meta_modify("objects", uuid, **mods)
-
-    def delete_object(self, uuid):
-        self.meta_delete("objects", uuid)
 
     def delete_role(self, role_id):
         return self.delete("roles", role_id)
