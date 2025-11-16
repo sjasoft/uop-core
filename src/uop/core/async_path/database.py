@@ -1,31 +1,9 @@
-"""
-What the database, of whatever concrete kind, needs to do:
-1) provide standard metadata about its contents and the means to load and save that data;
-2) provide the means to find and load any object efficiently;
-3) provide teh manes to find and load related objects to an object, by role and by all roles, efficiently
-4) provide the means to update contents based on a changeset;
-5) provide support for class, relation and tag queries in any combination
-
-Do tags need to be handled separately?  Do tag hierarchies need any more precise handling than using some kind of
-separator between subparts?
-
-Future database idea:
- Perhaps the simplest functional database would store objects as json data.  One scheme would simply use a json
- dictionary of attribute names and values.  Another approach is to use a json list where the first N items are
- special.  Having data[:1] be class_id, object_id might be one choice.  There are many others with somewhat more
- indirection.  With any such scheme we have some indices per class to make search more efficient.  At minimum we
- have an index on object id.
-
- In a free form database it is useful to have grouping by such category as class in some efficient form such as
-linked blocks of either actual object data (clustering) or of object references.
-"""
-
 from collections import defaultdict
 
 comment = defaultdict(set)
 from sjasoft.utils.decorations import abstract
 import time
-from sjasoft.utils import cw_logging, index
+from sjasoft.utils import index
 from sjasoft.utils import decorations
 from uop.core.async_path import changeset
 from uop.meta import oid
@@ -36,32 +14,29 @@ from sjasoft.utils.index import make_id
 import asyncio
 from uop.core import database as base
 
-logger = cw_logging.getLogger("uop.database")
-
-
-def id_dictionary(doclist):
-    return dict([(x["_id"], x) for x in doclist])
-
-
-def objects(doclist):
-    return [x for x in doclist]
+logger = base.logger
 
 
 class Database(base.Database):
+    async def get_metadata(self):
+        return await self.collections.metadata()
+
+    async def reload_metacontext(self):
+        coll_meta = await self.get_metadata()
+        self._context = meta.MetaContext.from_data(coll_meta)
 
     async def open_db(self, setup=None):
         self._collections = db_coll.DatabaseCollections(self)
         colmap = base.uop_collection_names
         if self._tenant_id:
-            tenant: meta.Tenant = await self.get_tenant(self._tenant_id)
-            if tenant:
-                colmap = tenant.base_collections
+            self._tenant = await self.get_tenant(self._tenant_id)
+            if self._tenant:
+                colmap.update(self._tenant.base_collections)
         await self._collections.ensure_collections(colmap)
         await self._collections.ensure_class_extensions()
         self._collections_complete = True
 
         await self.reload_metacontext()
-
 
     async def get_tenant(self, tenant_id):
         tenants = await self.tenants()
@@ -88,10 +63,12 @@ class Database(base.Database):
     async def gew_raw_collection(self, name):
         pass
 
-
-    async def ensure_setup(self):
-        await self.collections.ensure_basic_collections()
-        await self.ensure_database_info()
+    async def get_managed_collection(self, name, schema=None):
+        known = self.collections.get(name)
+        if not known:
+            raw = await self.get_raw_collection(name, schema)
+            known = self.wrap_raw_collection(raw)
+        return known
 
     @property
     def collections(self):
@@ -143,10 +120,17 @@ class Database(base.Database):
         coll = self.collections.changes
         await coll.insert(**changes.dict())
 
+    @base.contextmanager
+    async def changes(self, changeset=None):
+        changes = self._changeset or changeset.ChangeSet()
+        yield changes
+        if not self._changeset:
+            await self.apply_changes(changes)
+
     async def changes_since(self, epochtime, tenant_id, client_id=None):
         tenant_id = tenant_id or 0
-        device_id = device_id or 0
-        criteria = Q.all(Q.gt("timestamp", epochtime), Q.neq("device_id", device_id))
+        client_id = client_id or 0
+        criteria = changeset.changes.criteria(epochtime, tenant_id, client_id)
         changesets = await self.collections.changes.find(
             criteria, order_by=("timestamp",), only_cols=("changes",)
         )
@@ -218,7 +202,7 @@ class Database(base.Database):
                 await self.collections.related.insert(**dict(related))
             for related in changes.deleted:
                 await self.collections.related.remove(dict(related))
-        
+
         self.begin_transaction()
         for kind in base.crud_kinds:
             await apply_meta_changes(getattr(changeset, kind))
@@ -232,3 +216,21 @@ class Database(base.Database):
 
     async def commit(self):
         await self._db.commit()
+
+    async def ensure_schema(self, a_schema):
+        changes = changeset.meta_context_schema_diff(self.metacontext, a_schema)
+        has_changes = changes.has_changes()
+        if has_changes:
+            await self.apply_changes(changes)
+            await self.reload_metacontext()
+        return has_changes, changes
+
+    async def object_ok(self, object_id):
+        cls_id = oid.oid_class(object_id)
+        if self.class_ok(cls_id):
+            coll = await self.extension(cls_id)
+            return await coll.contains_id(object_id)
+        return False
+
+    async def extension(self, cls_id):
+        return await self.collections.class_extension(cls_id)

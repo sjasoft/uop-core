@@ -14,7 +14,7 @@ CLOSED: [2025-10-22 Wed 19:17]
 - State "DONE"       from "TODO"       [2025-10-22 Wed 19:17]
 :END
 ** TODO maybe bring back id fix problem solution
-The id assigned to meta objects and instances will vary from database to database.  This makes merging changes from one database to another with full semantic correctness difficult.  In particular it will give us name conflicts on meta objects.   For instances it is even worse as even after resolving semantically same class ids and applying we have sequence number portions differing.  It is ill defined waht a semantically the same instance is.
+The id assigned to meta objects and instances will vary from database to database.  This makes merging changes from one database to another with full semantic correctness difficult.  In particular it will give us name conflicts on meta objects.  But name field is key to merging for most meta types (groups are exception).   For instances it is even worse as even after resolving semantically same class ids and applying we have sequence number portions differing.  It is ill defined waht a semantically the same instance is.
 So is merge across databases even advisable ever? 
 ** TODO retest changeset
 SCHEDULED: <2025-10-23 Thu>

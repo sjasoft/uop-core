@@ -90,6 +90,7 @@ class Database(object):
         self._tenants = None
         self._collections_complete = False
         self._tenant_id = tenant_id
+        self._tenant: meta.Tenant = None
         self._context: meta.MetaContext = None
         self._changeset: changeset.ChangeSet = None
         self._mandatory_schemas = schemas
@@ -98,16 +99,6 @@ class Database(object):
     @property
     def metacontext(self):
         return self._context
-
-    def metadata(self):
-        return dict(
-            classes=self.collections.classes.all(),
-            roles=self.collections.roles.all(),
-            attributes=self.collections.attributes.all(),
-            groups=self.collections.groups.all(),
-            tags=self.collections.tags.all(),
-            queries=self.collections.queries.all(),
-        )
 
     def get_metadata(self):
         return self.collections.metadata()
@@ -137,19 +128,15 @@ class Database(object):
             res = "x" + res
         return res
 
-    def make_random_collection(self, schema=None):
-        return self.get_managed_collection(self.random_collection_name(), schema)
-
     # Collections
-
     @property
     def collections(self):
         if not self._collections_complete:
             col_map = dict(uop_collection_names)
-            if self._tenant_id:
-                tenant: meta.Tenant = self.get_tenant(self._tenant_id)
-                if tenant:
-                    self._collctions.update_tenant_collections(tenant.base_collections)
+            if self._tenant:
+                col_map.update(self._tenant.base_collections)
+            self._collections = db_coll.DatabaseCollections(self)
+            self._collections.ensure_collections(col_map)
             self._collections_complete = True
         return self._collections
 
@@ -243,21 +230,21 @@ class Database(object):
     # Checks
 
     def tag_ok(self, tag_id):
-        return tag_id in self.tags
+        return tag_id in self.metacontext.tags.by_id
 
     def group_ok(self, group_id):
-        return group_id in self.groups
+        return group_id in self.metacontext.groups.by_id
 
     def role_ok(self, role_id):
-        return role_id in self.roles
+        return role_id in self.metacontext.roles.by_id
 
     def class_ok(self, cls_id):
-        return cls_id in self.collections.classes
+        return cls_id in self.metacontext.classes.by_id
 
     def object_ok(self, object_id):
         cls_id = oid.oid_class(object_id)
         if self.class_ok(cls_id):
-            coll = self.extension(oid.oid_class(object_id))
+            coll = self.metacontext.classes.by_id[cls_id]
             return coll.contains_id(object_id)
         return False
 
@@ -302,9 +289,14 @@ class Database(object):
         Drops the tenant from the database.  This version removes their data.
         :param tenant_id id of the tenant to remove
         """
+
         collections = self.get_tenant_collections(tenant_id)
         if collections:
             self.collections.drop_collections(collections)
+
+    def get_tenant_collections(self, tenant_id):
+        tenant = self.get_tenant(tenant_id)
+        return tenant.base_collections
 
     def create_tenannt(self, name=""):
         tenant = meta.Tenant(name=name)
@@ -393,9 +385,9 @@ class Database(object):
         self._collections = db_coll.DatabaseCollections(self)
         colmap = uop_collection_names
         if self._tenant_id:
-            tenant: meta.Tenant = self.get_tenant(self._tenant_id)
-            if tenant:
-                colmap = tenant.base_collections
+            self._tenant = self.get_tenant(self._tenant_id)
+            if self._tenant:
+                colmap.update(self._tenant.base_collections)
         self._collections.ensure_collections(colmap)
         self._collections.ensure_class_extensions()
         self._collections_complete = True
