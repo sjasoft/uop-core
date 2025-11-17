@@ -389,6 +389,11 @@ def db_harness(db_plugin):
     return Plugin(db_plugin)
 
 
+@pytest.fixture
+def async_db_harness(db_plugin):
+    return AsyncPlugin(db_plugin)
+
+
 def test_general_db(db_harness):
     db_harness.insert_and_check()
     db_harness.modify_and_check()
