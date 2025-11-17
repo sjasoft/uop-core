@@ -385,7 +385,7 @@ class Database(object):
         if has_changes:
             self.apply_changes(changes)
             self.reload_metacontext()
-        return has_changes, changes        
+        return has_changes, changes
 
     def open_db(self, setup=None):
         self._collections = db_coll.DatabaseCollections(self)
