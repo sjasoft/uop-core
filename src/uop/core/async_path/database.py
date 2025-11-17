@@ -43,7 +43,7 @@ class Database(base.Database):
         return await tenants.get(tenant_id)
 
     async def make_random_collection(self):
-        res = index.make_id(48)
+        res = base.index.make_id(48)
         if not res[0].isalpha():
             res = "x" + res
         return await self.get_managed_collection(res)
@@ -282,7 +282,7 @@ class Database(base.Database):
         self.add_tenant(tenant)
         return tenant
 
-    @contextmanager
+    @base.contextmanager
     async def perhaps_committing(self, commit=False):
         yield
         if commit:
@@ -412,9 +412,6 @@ class Database(base.Database):
 
     # Classes
 
-    async def extension(self, cls_id):
-        return await self.collections.class_extension(cls_id)
-
     async def containing_collection(self, uuid):
         return await self.extension(oid.oid_class(uuid))
 
@@ -422,7 +419,9 @@ class Database(base.Database):
         cls = self.metaclass_named(name)
         return await self.extension(cls.id)
 
-    def create_instance_of(self, clsName, use_defaults=False, record=True, **data):
+    async def create_instance_of(
+        self, clsName, use_defaults=False, record=True, **data
+    ):
         """
         creates and saves an instance of the class with the given name
         :param clsName: name of the class
@@ -488,7 +487,7 @@ class Database(base.Database):
         :return: the object data for persistent WebURL
         """
 
-        results = await self.instances_satisfying("WebURL", Q.eq("url", url))
+        results = await self.instances_satisfying("WebURL", base.Q.eq("url", url))
         if results:
             return {"existing": True, "object": results[0]}
         object = await self.create_instance_of(
@@ -528,8 +527,10 @@ class Database(base.Database):
                 pairs = [
                     (a.name, a.val_from_string(v)) for a, v in zip(short_attrs, vals)
                 ]
-                query_parts = [Q.of_type("clsName")] + [Q.eq(p[0], p[1]) for p in pairs]
-                query = Q.all(*query_parts)
+                query_parts = [Q.of_type("clsName")] + [
+                    base.Q.eq(p[0], p[1]) for p in pairs
+                ]
+                query = base.Q.all(*query_parts)
                 obj = await self.query(query)
                 if create_if_missing and not obj:
                     obj = await self.create_instance_of(
