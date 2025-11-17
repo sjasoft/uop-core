@@ -527,7 +527,7 @@ class Database(base.Database):
                 pairs = [
                     (a.name, a.val_from_string(v)) for a, v in zip(short_attrs, vals)
                 ]
-                query_parts = [Q.of_type("clsName")] + [
+                query_parts = [base.Q.of_type("clsName")] + [
                     base.Q.eq(p[0], p[1]) for p in pairs
                 ]
                 query = base.Q.all(*query_parts)
