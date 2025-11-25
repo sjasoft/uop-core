@@ -84,7 +84,7 @@ class Database(object):
         return []
 
     def __init__(self, tenant_id=None, *schemas, **dbcredentials):
-        self.credentials = dbcredentials
+        self._credentials = dbcredentials
         self._collections: db_coll.DatabaseCollections = None
         self._long_txn_start = 0
         self._tenants = None
@@ -94,7 +94,6 @@ class Database(object):
         self._context: meta.MetaContext = None
         self._changeset: changeset.ChangeSet = None
         self._mandatory_schemas = schemas
-        self.open_db()
 
     @property
     def metacontext(self):
