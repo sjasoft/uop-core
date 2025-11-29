@@ -34,18 +34,26 @@ class DatabaseCollections(object):
             self.classes.update_one(cls["id"], {cls_extension_field: name})
         return name
 
+    def get_class_extension(self, cls):
+        name  = self.extension(cls)
+        cid = cls['id']
+        coll = self._extensions.get(cid)
+        if not coll:
+            coll = self._db.get_managed_collection(name, schema=cls)
+            self._extensions[cid] = coll
+        return coll
+
     def ensure_class_extensions(self):
         classes = self.classes.find()
         for cls in classes:
-            if not cls["id"] in self._extensions:
-                extension = self._db.get_managed_collection(self.extension(cls), cls)
-                self._extensions[cls["id"]] = extension
+            self.get_class_extension(cls)
 
     def ensure_collections(self, col_map):
         for name in col_map:
             if not self._collections.get(name):
+                col_name = col_map[name]
                 schema = kind_map.get(name)
-                self._collections[name] = self._db.get_managed_collection(name, schema)
+                self._collections[name] = self._db.get_managed_collection(col_name, schema)
 
     def metadata(self):
         return {k: self._collections[k].find() for k in shared_collections}
@@ -55,10 +63,16 @@ class DatabaseCollections(object):
             col.drop()
 
     def class_extension(self, cls_id):
-        return self._extensions.get[cls_id]
+        return self._extensions.get(cls_id)
 
     def get(self, name, schema=None):
         return self._collections.get(name)
+    
+    def drop_extension(self, name):
+        for cid, coll in list(self._extensions.items()):
+            if coll.name == name:
+                del self._extensions[cid]
+                coll.drop()
 
 
 class DBCollection(object):
@@ -152,22 +166,6 @@ class DBCollection(object):
         else:
             self._coll.drop()
 
-    def _unindex_id(self, an_id):
-        item = self._by_id.pop(an_id, None)
-        self._by_name.pop(item["name"], None)
-
-    def _change_indexed(self, dict_or_id, change_fn):
-        if not self._indexed:
-            return
-        if isinstance(dict_or_id, dict):
-            ids = self.ids_only(dict_or_id)
-            map(change_fn, ids)
-        else:
-            change_fn(dict_or_id)
-
-    def _unindex(self, dict_or_id):
-        self._change_indexed(dict_or_id, self._unindex_id)
-
     def insert(self, **fields):
         pass
 
@@ -211,19 +209,10 @@ class DBCollection(object):
         return self.count(criteria)
 
     def contains_id(self, an_id):
-        if an_id not in self._by_id:
-            return self.exists({"_id": an_id})
-        return True
+        return self.exists({"id": an_id})
 
     def get(self, instance_id):
-        data = None
-        if self._indexed:
-            data = self._by_id.get(instance_id)
-        if not data:
-            data = self.find_one({"id": instance_id})
-        if data and self._indexed:
-            self._index(data)
-        return data
+        return self.find_one({"id": instance_id})
 
     def get_all(self):
         """

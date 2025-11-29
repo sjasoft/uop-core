@@ -273,7 +273,7 @@ class ClassChanges(CrudChanges):
     kind = "classes"
 
     def deletion_criteria(self, key):
-        filter = lambda fld: {"$regex": {fld: f"^{key}\\."}}
+        filter = lambda fld: {"$regex": {fld: f"\\.{key}$"}}
         obj_check = filter("object_id")
         subject_check = filter("subject_id")
         return {"$or": [obj_check, subject_check]}
@@ -323,10 +323,8 @@ class ChangeSet(object):
             "roles",
             "tags",
             "groups",
-            "grouped",
             "classes",
             "attributes",
-            "tagged",
             "related",
         ]
         changes = {f: getattr(self, f).has_changes() for f in fields}

@@ -83,7 +83,7 @@ class Database(object):
     def existing_db_names(cls):
         return []
 
-    def __init__(self, tenant_id=None, *schemas, **dbcredentials):
+    def __init__(self, *schemas, tenant_id=None, **dbcredentials):
         self._credentials = dbcredentials
         self._collections: db_coll.DatabaseCollections = None
         self._long_txn_start = 0
@@ -107,11 +107,11 @@ class Database(object):
         self._context = MetaContext.from_data(coll_meta)
 
     @contextmanager
-    def changes(self, changeset=None):
+    def changes(self):
         changes = self._changeset or changeset.ChangeSet()
         yield changes
         if not self._changeset:
-            self._db.apply_changes(changes, self._db.collections)
+            self.apply_changes(changes)
 
     def ensure_schema(self, a_schema):
         changes = changeset.meta_context_schema_diff(self.metacontext, a_schema)
@@ -141,7 +141,7 @@ class Database(object):
 
     def tenants(self):
         if not self._tenants:
-            self._tenants = self._collections.get("tenants")
+            self._tenants = self._collections.get("tenants", {})
         return self._tenants
 
     def users(self):
@@ -170,8 +170,10 @@ class Database(object):
         Returns:
             DBCollection: the managed collection
         """
-        known = self.collections.get(name)
+        known = self._collections.get(name)
         if not known:
+            if isinstance(schema, dict):
+                schema = meta.MetaClass(**schema)
             raw = self.get_raw_collection(name, schema)
             known = self.wrap_raw_collection(raw)
         return known
@@ -243,7 +245,7 @@ class Database(object):
     def object_ok(self, object_id):
         cls_id = oid.oid_class(object_id)
         if self.class_ok(cls_id):
-            coll = self.metacontext.classes.by_id[cls_id]
+            coll = self.extension(cls_id)
             return coll.contains_id(object_id)
         return False
 
@@ -255,7 +257,7 @@ class Database(object):
         :param a_schema: a Schema
         :return: None
         """
-        self.schemas().insert(**a_schema.dict())
+        self._collections.schemas.insert(**a_schema.dict())
 
     # Tenants and Users
 
@@ -278,10 +280,10 @@ class Database(object):
         return tenant
 
     def add_tenant_user(self, tenant_id: str, user_id: str):
-        self.relate(tenant_id, self.role_id["has_user"], user_id)
+        self.relate(tenant_id, self.role_id("has_user"), user_id)
 
     def remove_tenant_user(self, tenant_id: str, user_id: str):
-        self.unrelate(tenant_id, self.role_id["has_user"], user_id)
+        self.unrelate(tenant_id, self.role_id("has_user"), user_id)
 
     def drop_tenant(self, tenant_id):
         """
@@ -327,6 +329,7 @@ class Database(object):
 
     def end_long_transaction(self):
         self._long_txn_start = 0
+        self._changeset = None
 
     def begin_transaction(self):
         if not self._changeset:
@@ -374,7 +377,7 @@ class Database(object):
         self.ensure_schema(core_schema)
 
     def ensure_schema(self, a_schema: meta.Schema):
-        if not self.schemas().find_one({"name": a_schema.name}):
+        if not self._collections.schemas.find_one({"name": a_schema.name}):
             self.add_schema(a_schema)
         self.ensure_schema_installed(a_schema)
 
@@ -387,8 +390,13 @@ class Database(object):
         return has_changes, changes
 
     def open_db(self, setup=None):
+        # TODO fix getting tenant before non-tenant collections set
+        # TODO spread fix to async version
         self._collections = db_coll.DatabaseCollections(self)
         colmap = uop_collection_names
+        self._collections.ensure_collections(colmap)
+        
+        
         if self._tenant_id:
             self._tenant = self.get_tenant(self._tenant_id)
             if self._tenant:
@@ -397,13 +405,17 @@ class Database(object):
         self._collections.ensure_class_extensions()
         self._collections_complete = True
         self.reload_metacontext()
+        for schema in self._mandatory_schemas:
+            self.ensure_schema(schema)
+
+
 
     def _db_has_collection(self, name):
         return False
 
     # Changesets
 
-    def log_changes(self, changeset, tenant_id=None):
+    def log_changes(self, changeset, tenant_id=""):
         """Log the changeset.
         We could log external to the main database but here we will presume that
         logging is local.
@@ -488,11 +500,22 @@ class Database(object):
             objects=delete_object,
             queries=delete_query,
         )
+        def apply_object_changes(changes):
+            for k, v in changes.inserted.items():
+                coll = self.containing_collection(k)
+                coll.insert(**v)
+            for k, v in changes.modified.items():
+                coll = self.containing_collection(k)
+                coll.update_one(k, v)
+            for k in changes.deleted:
+                coll = self.containing_collection(k)
+                coll.remove(k)
+                delete_completions[changes.kind](k)
 
         def apply_meta_changes(changes):
             coll = getattr(self.collections, changes.kind)
             for k, v in changes.inserted.items():
-                coll.inssert(**v)
+                coll.insert(**v)
             for k, v in changes.modified.items():
                 coll.update_one(k, v)
             for k in changes.deleted:
@@ -501,17 +524,21 @@ class Database(object):
 
         def apply_related_changes(changes):
             for related in changes.inserted:
-                self.collections.related.insert(**dict(related))
+                self.collections.related.insert(**related.without_kind())
+                
             for related in changes.deleted:
                 self.collections.related.remove(dict(related))
 
         self.begin_transaction()
         for kind in crud_kinds:
-            apply_meta_changes(getattr(changeset, kind))
+            fn = apply_object_changes if kind == 'objects' else apply_meta_changes
+            fn(getattr(changeset, kind))
         apply_related_changes(changeset.related)
 
         for extension_name in extensions_to_remove:
-            self.collections.remove(extension_name)
+            coll = self.collections.get(extension_name)
+            if coll:
+                coll.drop()
         self.log_changes(changeset)
         self.commit()
         self.reload_metacontext()
@@ -616,7 +643,8 @@ class Database(object):
     # Classes
 
     def extension(self, cls_id):
-        return self.collections.class_extension(cls_id)
+        cls = self.get_class(cls_id)
+        return self.collections.get_class_extension(cls.dict())
 
     def class_short_form(self, class_id):
         cls = self.get_class(class_id)
@@ -669,8 +697,6 @@ class Database(object):
 
     def get_object(self, uuid):
         obj = None
-        if self._cache:
-            obj = self._cache.get(uuid)
         if not obj:
             coll = self.containing_collection(uuid)
             obj = coll.get(uuid)
@@ -793,7 +819,7 @@ class Database(object):
         return res
 
     def get_object_tags(self, uuid):
-        role_id = self.roles.by_name["tag_applies"]
+        role_id = self.role_id("tag_applies")
         res = self.get_roleset(uuid, role_id, reverse=True)
         return res
 
@@ -806,7 +832,7 @@ class Database(object):
         :param recursive:
         :return:
         """
-        role_id = self.roles.by_name["group_contains"]
+        role_id = self.role_id("group_contains")
         res = self.get_roleset(uuid, role_id, reverse=True)
         if recursive:
             return recurse_set(res, lambda gid: self.groups_containing_group(gid))
@@ -823,13 +849,13 @@ class Database(object):
             raise NoSuchObject(uuid)
 
     def modify_object_tags(self, object_id, tag_ids, do_replace=False):
-        role_id = self.roles.by_name["tag_applies"]
+        role_id = self.role_id("tag_applies")
         return self.modify_associated_with_role(
             role_id, object_id, tag_ids, do_replace=do_replace
         )
 
     def modify_object_groups(self, object_id, group_ids, do_replace=False):
-        role_id = self.roles.by_name["group_contains"]
+        role_id = self.role_id("group_contains")
         return self.modify_associated_with_role(
             role_id, object_id, group_ids, do_replace=do_replace
         )
@@ -837,7 +863,7 @@ class Database(object):
     # Tags
 
     def get_tagset(self, tag_id, recursive=False):
-        role_id = self.roles.by_name["tag_applies"]
+        role_id = self.role_id("tag_applies")
         tags = set(tag_id)
         if recursive:
             tags.update(self.metacontext.subtags(tag_id))
@@ -845,7 +871,7 @@ class Database(object):
         return reduce(lambda a, b: a | b, sets, set())
 
     def modify_tag_objects(self, tag_id, object_ids, do_replace=False, reverse=True):
-        role_id = self.roles.by_name["tag_applies"]
+        role_id = self.role_id("tag_applies")
         return self.modify_associated_with_role(
             role_id, tag_id, object_ids, do_replace=do_replace, reverse=reverse
         )
@@ -870,17 +896,17 @@ class Database(object):
         return {}
 
     def tag(self, oid, tag):
-        role_id = self.roles.by_name["tag_applies"]
+        role_id = self.role_id("tag_applies")
         return self.relate(tag, role_id, oid)
 
     def untag(self, oid, tagid):
-        role_id = self.roles.by_name["tag_applies"]
+        role_id = self.role_id("tag_applies")
         return self.unrelate(tagid, role_id, oid)
 
     # Grousp
 
     def get_groupset(self, group_id, recursive=False):
-        role_id = self.roles.by_name["group_contains"]
+        role_id = self.role_id("group_contains")
         groups = set(group_id)
         if recursive:
             groups.update(self.groups_in_group(group_id))
@@ -890,14 +916,14 @@ class Database(object):
     def modify_group_objects(
         self, group_id, object_ids, do_replace=False, reverse=True
     ):
-        role_id = self.roles.by_name["group_contains"]
+        role_id = self.role_id("group_contains")
         return self.modify_associated_with_role(
             role_id, group_id, object_ids, do_replace=do_replace, reverse=reverse
         )
 
     def groups_in_group(self, group_id):
         """get groups contained in group using relations instead of directly"""
-        role_id = self.roles.by_name["contains_group"]
+        role_id = self.role_id("contains_group")
         func = lambda gid: self.get_roleset(gid, role_id)
         return recurse_set(func(group_id), func)
 
@@ -929,7 +955,7 @@ class Database(object):
         return {}
 
     def objects_in_group(self, group_id, transitive=False):
-        role_id = self.name_to_id("roles", "group_contains")
+        role_id = self.role_id("group_contains")
         groups = set(group_id)
         if transitive:
             groups.update(self.groups_in_group(group_id))
@@ -938,12 +964,12 @@ class Database(object):
 
     def group(self, oid, group_id):
         role_name = "group_contains" if self.object_ok(oid) else "contains_group"
-        role_id = self.name_to_id("roles", role_name)
+        role_id = self.role_id(role_name)
         return self.relate(group_id, role_id, oid)
 
     def ungroup(self, oid, group_id):
         role_name = "group_contains" if self.object_ok(oid) else "contains_group"
-        role_id = self.name_to_id("roles", role_name)
+        role_id = self.role_id(role_name)
         self.unrelate(group_id, role_id, oid)
 
     # Roles
@@ -970,7 +996,7 @@ class Database(object):
 
     def get_roleset(self, subject, role_id, reverse=False):
         key = role_id + ":" + subject
-        res = self._cache and self._cache.get(key)
+        res = None
         if not res:
             criteria = {"subject_id": subject, "assoc_id": role_id}
             col = "object_id"
@@ -978,8 +1004,6 @@ class Database(object):
                 criteria = {"object_id": subject, "assoc_id": role_id}
                 col = "subject_id"
             res = set(self.collections.related.find(criteria=criteria, only_cols=[col]))
-            if self._cache:
-                self._cache.set(key, res)
         return res
 
     def modify_object_related(
@@ -1004,7 +1028,7 @@ class Database(object):
 
         to_add = desired - current
         to_remove = current - desired
-        with self.changes(self) as chng:
+        with self.changes() as chng:
             for obj in to_add:
                 chng.insert("related", related(obj))
             if do_replace:
@@ -1031,7 +1055,7 @@ class Database(object):
         """
         Return just the subjects related by role_id
         """
-        return set(self.related.find({"role": role_id}, only_cols=["subject"]))
+        return set(self.collections.related.find({"role": role_id}, only_cols=["subject"]))
 
     def get_all_related(self, uuid):
         """
@@ -1039,18 +1063,20 @@ class Database(object):
         :param uuid:  the object to find related objects for
         :return: set of object ids of related objects
         """
-        res = set(self.related.find({"subject": uuid}, only_cols=["object_id"]))
-        res.update(self.related.find({"object_id": uuid}, only_cols=["subject"]))
+        res = set(self.collections.related.find({"subject": uuid}, only_cols=["object_id"]))
+        res.update(self.collections.related.find({"object_id": uuid}, only_cols=["subject"]))
         return {r for r in res if oid.has_uuid_form(r)}
 
     def relate(self, subject_oid, roleid, object_oid):
-        data = meta.Related(
+        r_data = meta.Related(
             subject_id=subject_oid, assoc_id=roleid, object_id=object_oid
         )
-        if not self.related.exists(data.without_kind()):
-            return self.meta_insert(data)
-        return data
-
+        data = r_data.without_kind()
+        if not self.collections.related.exists(data):
+            with self.changes() as chng:
+                return chng.related.insert(data)
+        return r_data
+    
     def unrelate(self, oid, roleid, other_oid):
         self.meta_delete(
             "related",
@@ -1060,7 +1086,7 @@ class Database(object):
     # Chngeset modifiers
 
     def meta_insert(self, obj):
-        with self.changes(self) as chng:
+        with self.changes() as chng:
             data = as_dict(obj)
             kind = data.pop("kind", "objects")
             chng.insert(kind, data)
@@ -1073,12 +1099,12 @@ class Database(object):
         return meta
 
     def meta_modify(self, kind, an_id, **data):
-        with self.changes(self) as chng:
+        with self.changes() as chng:
             res = chng.modify(kind, an_id, data)
         return res or getattr(self, kind, {}).get(an_id)
 
     def meta_delete(self, kind, id_or_data):
-        with self.changes(self) as chng:
+        with self.changes() as chng:
             if not isinstance(id_or_data, str):
                 data = as_dict(id_or_data)
                 data.pop("kind", None)
