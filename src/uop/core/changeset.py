@@ -273,7 +273,7 @@ class ClassChanges(CrudChanges):
     kind = "classes"
 
     def deletion_criteria(self, key):
-        filter = lambda fld: {"$regex": {fld: f"\\.{key}$"}}
+        filter = lambda fld: {"endswith": {fld: key}}
         obj_check = filter("object_id")
         subject_check = filter("subject_id")
         return {"$or": [obj_check, subject_check]}
