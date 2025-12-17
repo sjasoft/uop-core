@@ -1,17 +1,15 @@
 from collections import defaultdict
+from contextlib import asynccontextmanager
 
 comment = defaultdict(set)
 from sjasoft.utils.decorations import abstract
 import time
 from sjasoft.utils.data import async_recurse_set
 from sjasoft.utils import decorations
-from uop.core.async_path import changeset
+from uop.core import changeset
 from uop.meta import oid
 from uop.meta.schemas import meta
 from uop.core.async_path import db_collection as db_coll
-from uop.core import interface as iface
-from sjasoft.utils.index import make_id
-import asyncio
 from uop.core import database as base
 
 logger = base.logger
@@ -37,6 +35,8 @@ class Database(base.Database):
         self._collections_complete = True
 
         await self.reload_metacontext()
+        for schema in self._mandatory_schemas:
+            await self.ensure_schema(schema)
 
     async def get_tenant(self, tenant_id):
         tenants = await self.tenants()
@@ -109,19 +109,21 @@ class Database(base.Database):
                     self._tenant_map[tenant_id] = collections
         return collections
 
-    async def log_changes(self, changeset, tenant_id=None):
+    async def log_changes(self, changeset, tenant_id=""):
         """Log the changeset.
         We could log external to the main database but here we will presume that
         logging is local.
         """
         changes = meta.MetaChanges(
-            timestamp=time.time(), tenant_id=tenant_id, changes=changeset.to_dict()
+            timestamp=time.time(),
+            tenant_id=tenant_id or "",
+            changes=changeset.to_dict(),
         )
         coll = self.collections.changes
         await coll.insert(**changes.dict())
 
-    @base.contextmanager
-    async def changes(self, changeset=None):
+    @asynccontextmanager
+    async def changes(self):
         changes = self._changeset or changeset.ChangeSet()
         yield changes
         if not self._changeset:
@@ -187,6 +189,18 @@ class Database(base.Database):
             queries=delete_query,
         )
 
+        async def apply_object_changes(changes):
+            for k, v in changes.inserted.items():
+                coll = await self.containing_collection(k)
+                await coll.insert(**v)
+            for k, v in changes.modified.items():
+                coll = await self.containing_collection(k)
+                await coll.update_one(k, v)
+            for k in changes.deleted:
+                coll = await self.containing_collection(k)
+                await coll.remove(k)
+                await delete_completions[changes.kind](k)
+
         async def apply_meta_changes(changes):
             coll = getattr(self.collections, changes.kind)
             for k, v in changes.inserted.items():
@@ -203,14 +217,15 @@ class Database(base.Database):
             for related in changes.deleted:
                 await self.collections.related.remove(dict(related))
 
-        self.begin_transaction()
+        await self.begin_transaction()
         for kind in base.crud_kinds:
-            await apply_meta_changes(getattr(changeset, kind))
-        apply_related_changes(changeset.related)
+            fn = apply_object_changes if kind == "objects" else apply_meta_changes
+            await fn(getattr(changeset, kind))
+        await apply_related_changes(changeset.related)
 
         for extension_name in extensions_to_remove:
             self.collections.remove(extension_name)
-        await self.log_changes(changeset)
+        await self.log_changes(changeset, tenant_id=self._tenant_id)
         await self.commit()
         await self.reload_metacontext()
 
@@ -221,7 +236,7 @@ class Database(base.Database):
         await self.ensure_schema(meta.core_schema)
 
     async def ensure_schema(self, a_schema: meta.Schema):
-        if not await self.schemas().find_one({"name": a_schema.name}):
+        if not await self.collections.schemas.find_one({"name": a_schema.name}):
             await self.add_schema(a_schema)
         await self.ensure_schema_installed(a_schema)
 
@@ -246,14 +261,13 @@ class Database(base.Database):
         :param a_schema: a Schema
         :return: None
         """
-        await self.schemas().insert(**a_schema.dict())
+        await self.collections.schemas.insert(**a_schema.dict())
 
     async def extension(self, cls_id):
         return await self.collections.class_extension(cls_id)
 
     async def add_tenant(self, tenant: meta.Tenant):
-        tenants = self.tenants()
-        tenant = tenants.insert(**tenant.dict())
+        tenant = self.collections.tenants.insert(**tenant.dict())
         return tenant
 
     async def add_tenant_user(self, tenant_id: str, user_id: str):
@@ -293,6 +307,7 @@ class Database(base.Database):
 
     async def end_long_transaction(self):
         self._long_txn_start = 0
+        self._changeset = None
 
     async def begin_transaction(self):
         if not self._changeset:
@@ -311,7 +326,7 @@ class Database(base.Database):
     async def commit(self):
         if self.in_outer_transaction():
             await self.really_commit()
-            self.end_long_transaction()
+            await self.end_long_transaction()
         self.close_current_transaction()
 
     # Basic CRUD
@@ -359,17 +374,11 @@ class Database(base.Database):
     async def delete_attribute(self, attrid):
         return await self.delete("attributes", attrid)
 
-    async def add_role(self, **spec):
-        return await self.insert("roles", **spec)
-
     async def modify_role(self, role_id, **mods):
         return await self.modify("roles", role_id, mods)
 
     async def add_role(self, **spec):
         return await self.insert("roles", **spec)
-
-    async def modify_role(self, role_id, **mods):
-        return await self.modify("roles", role_id, mods)
 
     async def delete_role(self, role_id):
         return await self.delete("roles", role_id)
@@ -773,7 +782,7 @@ class Database(base.Database):
 
         to_add = desired - current
         to_remove = current - desired
-        async with self.changes(self) as chng:
+        async with self.changes() as chng:
             for obj in to_add:
                 chng.insert("related", related(obj))
             if do_replace:
@@ -841,7 +850,7 @@ class Database(base.Database):
     # Chngeset modifiers
 
     async def meta_insert(self, obj):
-        async with self.changes(self) as chng:
+        async with self.changes() as chng:
             data = base.as_dict(obj)
             kind = data.pop("kind", "objects")
             chng.insert(kind, data)
@@ -854,12 +863,12 @@ class Database(base.Database):
         return meta
 
     async def meta_modify(self, kind, an_id, **data):
-        async with self.changes(self) as chng:
+        async with self.changes() as chng:
             res = chng.modify(kind, an_id, data)
         return res
 
     async def meta_delete(self, kind, id_or_data):
-        async with self.changes(self) as chng:
+        async with self.changes() as chng:
             if not isinstance(id_or_data, str):
                 data = base.as_dict(id_or_data)
                 data.pop("kind", None)

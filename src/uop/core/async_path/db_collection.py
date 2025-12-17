@@ -9,6 +9,9 @@ unique_field = lambda name: partial(base.UniqueField, name)
 
 
 class DatabaseCollections(base.DatabaseCollections):
+    def __init__(self, db):
+        super().__init__(db)
+
     async def metadata(self):
         return {k: await self._collections[k].find() for k in base.shared_collections}
 
@@ -20,21 +23,38 @@ class DatabaseCollections(base.DatabaseCollections):
         cls = await self.classes.get(cls_id)
         return await self.get_class_extension(cls)
 
+    async def extension(self, cls):
+        name = cls.get(base.cls_extension_field)
+        if not name:
+            name = self._db.new_collection_name()
+            cls[base.cls_extension_field] = name
+            await self.classes.update_one(cls["id"], {base.cls_extension_field: name})
+        return name
+
+    async def get_class_extension(self, cls):
+        name  = await self.extension(cls)
+        cid = cls['id']
+        coll = self._extensions.get(cid)
+        if not coll:
+            coll = await self._db.get_managed_collection(name, schema=cls)
+            self._extensions[cid] = coll
+        return coll
+
+    async def ensure_class_extensions(self):
+        classes = await self.classes.find()
+        for cls in classes:
+            await self.get_class_extension(cls)
+
     async def ensure_collections(self, col_map):
         for name in col_map:
             if not self._collections.get(name):
                 schema = base.kind_map.get(name)
-                self._collections[name] = await self._db.get_managed_collection(name, schema)
+                self._collections[name] = await self._db.get_managed_collection(col_map[name], schema)
 
  
-    async def get(self, name):
-        col = self._collections.get(name)
-        if not col:
-            col = await self._db.get_managed_collection(
-                name, tenant_modifier=self._collection_tenant_condition(name)
-            )
-            self._collections[name] = col
-        return col
+    def get(self, name):
+        return self._collections.get(name)
+
  
 
 
@@ -112,7 +132,7 @@ class DBCollection(base.DBCollection):
 
     async def all(self):
         return await self.find()
-    g
+
     async def get_all(self):
         """
         Returns a dictionary of mapping record ids to records for all

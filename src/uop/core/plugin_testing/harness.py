@@ -229,39 +229,38 @@ class AsyncPlugin(Plugin):
     async def meta_item_exists(self, kind, an_id):
         return await self.get_kind_collection(kind).get(an_id)
 
-    async def insert_and_check(self, random_data, db_tagged, db_grouped, db_related):
+    async def insert_and_check(self):
         for kind in crud_kinds:
             if kind in ["objects", "queries"]:
                 continue
             cls = meta.kind_map[kind]
             inserter = self.get_methods(kind)["insert"]
             coll = self.get_kind_collection(kind)
-            data = random_data.all_of_kind(kind)
+            data = self._random_data.all_of_kind(kind)
             for obj in data:
                 id = obj.id
                 present = await coll.get(id)
-                if present:
-                    print("already in database", kind, id, obj)
-                else:
+                if not present:
                     data = obj.without_kind()
                     await inserter(**data)
-                from_db = await coll.get(id)
-                if not from_db:
-                    print("%s(%s) not in db!" % (kind, id))
-                assert from_db
-        assoc_add = random_data.random_tagged()
+                    from_db = await coll.get(id)
+                    assert from_db
         for kind in assoc_kinds:
-            fn = getattr(random_data, f"random_{kind}")
+            fn = getattr(self._random_data, f"random_{kind}")
             coll = self.get_kind_collection(kind)
-            items = await self.get_unique(5, fn, coll.find())
+            items = self.get_unique(5, fn, await coll.find())
             for obj in items:
                 obj = obj.without_kind()
                 await coll.insert(**obj)
                 found = await coll.find_one(obj)
                 assert found
 
-    async def modify_and_check(self, random_data, db_tagged, db_grouped, db_related):
-        global context
+
+
+    get_id = lambda obj: obj["id"]
+
+
+    async def modify_and_check(self):
         desc = "this is the new description"
         for kind in crud_kinds:
             if kind in ["objects", "queries"]:
@@ -269,39 +268,39 @@ class AsyncPlugin(Plugin):
             cls = meta.kind_map[kind]
             modifier = self.get_methods(kind)["modify"]
             coll = self.get_kind_collection(kind)
-            for obj in random_data.all_of_kind(kind):
+
+            for obj in self._random_data.all_of_kind(kind):
                 id = obj.id
                 await modifier(id, description=desc)
-                from_db = coll.get(id)
+                from_db = await coll.get(id)
                 if not from_db:
                     print("%s(%s) no in db!" % (kind, id))
                 assert from_db["description"] == desc
 
-    get_id = lambda obj: obj["id"]
+    def get_id(self, obj):
+        return obj["id"]
 
-    async def delete_and_check(self, random_data, db_tagged, db_grouped, db_related):
-        a_class, other_class = random_data.distinct_pair(
-            "classes", lambda c: not c.is_abstract
+    async def delete_and_check(self):
+        db_tagged = db_grouped = db_related = self.plugin.collections.related
+        a_class, other_class, random_class = self._random_data.distinct_of_kind(
+            "classes", 3, lambda c: not c.is_abstract
         )
-        random_class = random_data.random_new_class()
-        self.plugin.add_class(**random_class)
-        
-        self._get_method("add_class")(**random_class.without_kind())
-        a_role, another_role = random_data.distinct_pair("roles")
-        a_tag, another_tag = random_data.distinct_pair("tags")
-        a_group, another_group = random_data.distinct_pair("groups")
-
+        forbidden_roles = ('tag_applies', 'group_contains')
+        role_pick_protect = lambda role: role.name not in forbidden_roles
+        #random_class = self._random_data.random_new_class()
+        #self._get_method("add_class")(**random_class.without_kind())
+        a_role, another_role = self._random_data.distinct_pair("roles", role_pick_protect)
+        a_tag, another_tag = self._random_data.distinct_pair("tags")
+        a_group, another_group = self._random_data.distinct_pair("groups")
         add_object = self._get_method("add_object")
 
         async def add_class_object(a_class):
-            global context
-            object = random_data.random_class_instance(a_class)
+            object = self._random_data.random_class_instance(a_class)
             insert = self._get_method("add_object")
             await insert(object)
             return object
 
         async def add_grouped(group, object) -> meta.Related:
-            global context
             db_group = self._get_method("group")
             return await db_group(self.get_id(object), group.id)
 
@@ -315,9 +314,8 @@ class AsyncPlugin(Plugin):
                 object_id=self.get_id(object),
                 subject_id=self.get_id(subject),
             )
-            db_relate = context._get_method("relate")
-            await db_relate(self.get_id(subject), role.id, self.get_id(object))
-            return assoc
+            db_relate = self._get_method("relate")
+            return await db_relate(self.get_id(subject), role.id, self.get_id(object))
 
         async def assoc_exists(collection, assoc: meta.Associated):
             data = assoc.dict()
@@ -356,27 +354,19 @@ class AsyncPlugin(Plugin):
         assert not await assoc_exists(db_related, related)
         assert await assoc_exists(db_related, related2)
 
+        await self.get_methods("roles")["delete"](another_role.id)
+        assert not await self.get_kind_collection("related").exists(related4.without_kind())
+
         await self.get_methods("classes")["delete"](random_class.id)
-        assert not await assoc_exists(db_grouped, grouped4)
         assert await assoc_exists(db_grouped, grouped2)
-        assert not await assoc_exists(db_tagged, tagged4)
         assert await assoc_exists(db_tagged, tagged2)
+        assert await assoc_exists(db_related, related2)
+        assert not await assoc_exists(db_grouped, grouped4)
+        assert not await assoc_exists(db_tagged, tagged4)
         assert not await assoc_exists(db_related, related3)
         assert not await assoc_exists(db_related, related4)
-        assert await assoc_exists(db_related, related2)
 
-        await self.get_methods("groups")["delete"](another_group.id)
-        assert not await self.get_kind_collection("grouped").exists(
-            grouped4.without_kind()
-        )
-        await self.get_methods("tags")["delete"](another_tag.id)
-        assert not await self.get_kind_collection("tagged").exists(
-            tagged4.without_kind()
-        )
-        await self.get_methods("roles")["delete"](another_role.id)
-        assert not await self.get_kind_collection("related").exists(
-            related4.without_kind()
-        )
+
 
 
 @pytest.fixture

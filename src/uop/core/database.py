@@ -83,7 +83,7 @@ class Database(object):
     def existing_db_names(cls):
         return []
 
-    def __init__(self, *schemas, tenant_id=None, **dbcredentials):
+    def __init__(self, *schemas, tenant_id='', **dbcredentials):
         self._credentials = dbcredentials
         self._collections: db_coll.DatabaseCollections = None
         self._long_txn_start = 0

@@ -74,7 +74,6 @@ class DatabaseCollections(object):
                 del self._extensions[cid]
                 coll.drop()
 
-
 class DBCollection(object):
     """Abstract collection base."""
 
