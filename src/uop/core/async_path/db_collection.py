@@ -4,7 +4,6 @@ from functools import partial
 from uop.core import db_collection as base
 
 
-
 unique_field = lambda name: partial(base.UniqueField, name)
 
 
@@ -32,8 +31,8 @@ class DatabaseCollections(base.DatabaseCollections):
         return name
 
     async def get_class_extension(self, cls):
-        name  = await self.extension(cls)
-        cid = cls['id']
+        name = await self.extension(cls)
+        cid = cls["id"]
         coll = self._extensions.get(cid)
         if not coll:
             coll = await self._db.get_managed_collection(name, schema=cls)
@@ -49,23 +48,21 @@ class DatabaseCollections(base.DatabaseCollections):
         for name in col_map:
             if not self._collections.get(name):
                 schema = base.kind_map.get(name)
-                self._collections[name] = await self._db.get_managed_collection(col_map[name], schema)
+                self._collections[name] = await self._db.get_managed_collection(
+                    col_map[name], schema
+                )
 
- 
     def get(self, name):
         return self._collections.get(name)
-
- 
 
 
 class DBCollection(base.DBCollection):
     """Abstract collection base."""
 
-
     async def count(self, criteria):
-        self.db_id(criteria)
-        return await self._coll.count(criteria)
-    
+        data = await self.find(criteria)
+        return len(data)
+
     async def ensure_index(self, coll, *attr_order):
         pass
 
@@ -116,16 +113,14 @@ class DBCollection(base.DBCollection):
         return await self.count(criteria)
 
     async def contains_id(self, an_id):
-        if an_id not in self._by_id:
-            return await self.exists({"_id": an_id})
-        return True
+        return await self.exists({"id": an_id})
 
     async def get(self, instance_id):
         data = None
         if self._indexed:
             data = self._by_id.get(instance_id)
         if not data:
-            data = await self.find_one({"_id": instance_id})
+            data = await self.find_one({"id": instance_id})
         if data and self._indexed:
             self._index(data)
         return data
@@ -145,7 +140,7 @@ class DBCollection(base.DBCollection):
         return await self.find()
 
     async def replace_one(self, an_id, data):
-        await self._coll.replace_one({"_id": an_id}, data)
+        await self._coll.replace_one({"id": an_id}, data)
 
     async def replace(self, object):
         id = object.pop("id")

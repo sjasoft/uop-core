@@ -21,7 +21,12 @@ linked blocks of either actual object data (clustering) or of object references.
 """
 
 from uop.core import db_collection as db_coll
-from uop.core.collections import uop_collection_names, per_tenant_kinds, crud_kinds
+from uop.core.collections import (
+    uop_collection_names,
+    per_tenant_kinds,
+    crud_kinds,
+    cls_extension_field,
+)
 from uop.core import changeset
 from sjasoft.web.url import is_url
 from sjasoft.utils.tools import match_fields
@@ -83,7 +88,7 @@ class Database(object):
     def existing_db_names(cls):
         return []
 
-    def __init__(self, *schemas, tenant_id='', **dbcredentials):
+    def __init__(self, *schemas, tenant_id="", **dbcredentials):
         self._credentials = dbcredentials
         self._collections: db_coll.DatabaseCollections = None
         self._long_txn_start = 0
@@ -93,6 +98,7 @@ class Database(object):
         self._tenant: meta.Tenant = None
         self._context: meta.MetaContext = None
         self._changeset: changeset.ChangeSet = None
+        self._known_schemas = set()
         self._mandatory_schemas = schemas
 
     @property
@@ -112,14 +118,6 @@ class Database(object):
         yield changes
         if not self._changeset:
             self.apply_changes(changes)
-
-    def ensure_schema(self, a_schema):
-        changes = changeset.meta_context_schema_diff(self.metacontext, a_schema)
-        has_changes = changes.has_changes()
-        if has_changes:
-            self.apply_changes(changes)
-            self.reload_metacontext()
-        return has_changes, changes
 
     def random_collection_name(self):
         res = index.make_id(48)
@@ -372,22 +370,27 @@ class Database(object):
     def get_collection(self, collection_name):
         return self.collections.get(collection_name)
 
-    def ensure_core_schema(self):
-        core_schema: meta.Schema = meta.core_schema()
-        self.ensure_schema(core_schema)
-
     def ensure_schema(self, a_schema: meta.Schema):
-        if not self._collections.schemas.find_one({"name": a_schema.name}):
+        if a_schema.name not in self._known_schemas:
             self.add_schema(a_schema)
-        self.ensure_schema_installed(a_schema)
+            self.ensure_schema_installed(a_schema)
 
     def ensure_schema_installed(self, a_schema):
+        for name in a_schema.requires_schemas:
+            if name not in self._known_schemas:
+                known = meta.known_schemas.get(name)
+                if known:
+                    self.ensure_schema(known)
+                else:
+                    raise Exception(
+                        f"Schema {a_schema.name} requires missing schema {name}"
+                    )
         changes = changeset.meta_context_schema_diff(self.metacontext, a_schema)
         has_changes = changes.has_changes()
         if has_changes:
             self.apply_changes(changes)
             self.reload_metacontext()
-        return has_changes, changes
+        self._known_schemas.add(a_schema.name)
 
     def open_db(self, setup=None):
         # TODO fix getting tenant before non-tenant collections set
@@ -395,8 +398,7 @@ class Database(object):
         self._collections = db_coll.DatabaseCollections(self)
         colmap = uop_collection_names
         self._collections.ensure_collections(colmap)
-        
-        
+
         if self._tenant_id:
             self._tenant = self.get_tenant(self._tenant_id)
             if self._tenant:
@@ -405,10 +407,14 @@ class Database(object):
         self._collections.ensure_class_extensions()
         self._collections_complete = True
         self.reload_metacontext()
+        self._known_schemas = self.db_schema_names()
+        self.ensure_schema(meta.core_schema)
         for schema in self._mandatory_schemas:
             self.ensure_schema(schema)
 
-
+    def db_schema_names(self):
+        schemas_coll = self._collections.schemas
+        schemas = set(schemas_coll.find(only_cols=("name",)))
 
     def _db_has_collection(self, name):
         return False
@@ -454,8 +460,13 @@ class Database(object):
         extensions_to_remove = []
 
         def delete_class(cls_id):
-            coll = self.extension(cls_id)
-            extensions_to_remove.append(coll.name)
+            cls = self.metacontext.classes.by_id.get(cls_id)
+            if cls:
+                coll_name = getattr(cls, cls_extension_field)
+                if coll_name:
+                    coll = self.collections.get(coll_name)
+                    if coll:
+                        coll.drop()
             criteria = changeset.classes.deletion_criteria(cls_id)
             self.collections.related.remove(criteria)
 
@@ -500,6 +511,7 @@ class Database(object):
             objects=delete_object,
             queries=delete_query,
         )
+
         def apply_object_changes(changes):
             for k, v in changes.inserted.items():
                 coll = self.containing_collection(k)
@@ -525,13 +537,13 @@ class Database(object):
         def apply_related_changes(changes):
             for related in changes.inserted:
                 self.collections.related.insert(**related.without_kind())
-                
+
             for related in changes.deleted:
                 self.collections.related.remove(dict(related))
 
         self.begin_transaction()
         for kind in crud_kinds:
-            fn = apply_object_changes if kind == 'objects' else apply_meta_changes
+            fn = apply_object_changes if kind == "objects" else apply_meta_changes
             fn(getattr(changeset, kind))
         apply_related_changes(changeset.related)
 
@@ -1055,7 +1067,9 @@ class Database(object):
         """
         Return just the subjects related by role_id
         """
-        return set(self.collections.related.find({"role": role_id}, only_cols=["subject"]))
+        return set(
+            self.collections.related.find({"role": role_id}, only_cols=["subject"])
+        )
 
     def get_all_related(self, uuid):
         """
@@ -1063,8 +1077,12 @@ class Database(object):
         :param uuid:  the object to find related objects for
         :return: set of object ids of related objects
         """
-        res = set(self.collections.related.find({"subject": uuid}, only_cols=["object_id"]))
-        res.update(self.collections.related.find({"object_id": uuid}, only_cols=["subject"]))
+        res = set(
+            self.collections.related.find({"subject": uuid}, only_cols=["object_id"])
+        )
+        res.update(
+            self.collections.related.find({"object_id": uuid}, only_cols=["subject"])
+        )
         return {r for r in res if oid.has_uuid_form(r)}
 
     def relate(self, subject_oid, roleid, object_oid):
@@ -1076,7 +1094,7 @@ class Database(object):
             with self.changes() as chng:
                 return chng.related.insert(data)
         return r_data
-    
+
     def unrelate(self, oid, roleid, other_oid):
         self.meta_delete(
             "related",

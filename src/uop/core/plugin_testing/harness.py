@@ -26,10 +26,12 @@ class Plugin:
         self.get_object = self.plugin.get_object
         self._random_data: meta.WorkingContext = None
 
-    def setup_random_data(self,num_assocs=4, num_instances=10, persist_to=None):
+    def setup_random_data(self, num_assocs=4, num_instances=10, persist_to=None):
         self._random_data = meta.WorkingContext.from_metadata(self.plugin.metacontext)
-        self._random_data.configure(num_assocs=num_assocs, num_instances=num_instances, persist_to=persist_to)
-        
+        self._random_data.configure(
+            num_assocs=num_assocs, num_instances=num_instances, persist_to=persist_to
+        )
+
     def _get_method(self, name):
         return getattr(self.plugin, name)
 
@@ -124,18 +126,31 @@ class Plugin:
                 assert from_db["description"] == desc
 
     def get_id(self, obj):
-        return obj["id"]    
+        return obj["id"]
+
+    def _distinct_classes(self):
+        def has_subclass(cls):
+            return self._random_data.has_subclasses(cls.id)
+
+        aclass, other_class = self._random_data.distinct_of_kind(
+            "classes", 2, lambda c: not c.is_abstract and not has_subclass(c)
+        )
+        random_class = self._random_data.distinct_of_kind(
+            "classes", 1, lambda c: not c.is_abstract and not has_subclass(c)
+        )[0]
+        return aclass, other_class, random_class
 
     def delete_and_check(self):
         db_tagged = db_grouped = db_related = self.plugin.collections.related
-        a_class, other_class, random_class = self._random_data.distinct_of_kind(
-            "classes", 3, lambda c: not c.is_abstract
-        )
-        forbidden_roles = ('tag_applies', 'group_contains')
+        a_class, other_class, random_class = self._distinct_classes()
+
+        forbidden_roles = ("tag_applies", "group_contains")
         role_pick_protect = lambda role: role.name not in forbidden_roles
-        #random_class = self._random_data.random_new_class()
-        #self._get_method("add_class")(**random_class.without_kind())
-        a_role, another_role = self._random_data.distinct_pair("roles", role_pick_protect)
+        # random_class = self._random_data.random_new_class()
+        # self._get_method("add_class")(**random_class.without_kind())
+        a_role, another_role = self._random_data.distinct_pair(
+            "roles", role_pick_protect
+        )
         a_tag, another_tag = self._random_data.distinct_pair("tags")
         a_group, another_group = self._random_data.distinct_pair("groups")
         add_object = self._get_method("add_object")
@@ -150,7 +165,6 @@ class Plugin:
             db_group = self._get_method("group")
             return db_group(self.get_id(object), group.id)
 
-
         def add_tagged(tag, object) -> meta.Related:
             db_tag = self._get_method("tag")
             return db_tag(self.get_id(object), tag.id)
@@ -163,7 +177,6 @@ class Plugin:
             )
             db_relate = self._get_method("relate")
             return db_relate(self.get_id(subject), role.id, self.get_id(object))
-
 
         def assoc_exists(collection, assoc: meta.Associated):
             data = assoc.dict()
@@ -215,7 +228,6 @@ class Plugin:
         assert not assoc_exists(db_related, related4)
 
 
-
 class AsyncPlugin(Plugin):
     def get_methods(self, kind):
         method_names = interface_methods[kind]
@@ -255,10 +267,7 @@ class AsyncPlugin(Plugin):
                 found = await coll.find_one(obj)
                 assert found
 
-
-
     get_id = lambda obj: obj["id"]
-
 
     async def modify_and_check(self):
         desc = "this is the new description"
@@ -282,14 +291,14 @@ class AsyncPlugin(Plugin):
 
     async def delete_and_check(self):
         db_tagged = db_grouped = db_related = self.plugin.collections.related
-        a_class, other_class, random_class = self._random_data.distinct_of_kind(
-            "classes", 3, lambda c: not c.is_abstract
-        )
-        forbidden_roles = ('tag_applies', 'group_contains')
+        a_class, other_class, random_class = self._distinct_classes()
+        forbidden_roles = ("tag_applies", "group_contains")
         role_pick_protect = lambda role: role.name not in forbidden_roles
-        #random_class = self._random_data.random_new_class()
-        #self._get_method("add_class")(**random_class.without_kind())
-        a_role, another_role = self._random_data.distinct_pair("roles", role_pick_protect)
+        # random_class = self._random_data.random_new_class()
+        # self._get_method("add_class")(**random_class.without_kind())
+        a_role, another_role = self._random_data.distinct_pair(
+            "roles", role_pick_protect
+        )
         a_tag, another_tag = self._random_data.distinct_pair("tags")
         a_group, another_group = self._random_data.distinct_pair("groups")
         add_object = self._get_method("add_object")
@@ -355,7 +364,9 @@ class AsyncPlugin(Plugin):
         assert await assoc_exists(db_related, related2)
 
         await self.get_methods("roles")["delete"](another_role.id)
-        assert not await self.get_kind_collection("related").exists(related4.without_kind())
+        assert not await self.get_kind_collection("related").exists(
+            related4.without_kind()
+        )
 
         await self.get_methods("classes")["delete"](random_class.id)
         assert await assoc_exists(db_grouped, grouped2)
@@ -365,8 +376,6 @@ class AsyncPlugin(Plugin):
         assert not await assoc_exists(db_tagged, tagged4)
         assert not await assoc_exists(db_related, related3)
         assert not await assoc_exists(db_related, related4)
-
-
 
 
 @pytest.fixture

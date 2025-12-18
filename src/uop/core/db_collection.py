@@ -35,8 +35,8 @@ class DatabaseCollections(object):
         return name
 
     def get_class_extension(self, cls):
-        name  = self.extension(cls)
-        cid = cls['id']
+        name = self.extension(cls)
+        cid = cls["id"]
         coll = self._extensions.get(cid)
         if not coll:
             coll = self._db.get_managed_collection(name, schema=cls)
@@ -53,7 +53,9 @@ class DatabaseCollections(object):
             if not self._collections.get(name):
                 col_name = col_map[name]
                 schema = kind_map.get(name)
-                self._collections[name] = self._db.get_managed_collection(col_name, schema)
+                self._collections[name] = self._db.get_managed_collection(
+                    col_name, schema
+                )
 
     def metadata(self):
         return {k: self._collections[k].find() for k in shared_collections}
@@ -67,12 +69,13 @@ class DatabaseCollections(object):
 
     def get(self, name, schema=None):
         return self._collections.get(name)
-    
+
     def drop_extension(self, name):
         for cid, coll in list(self._extensions.items()):
             if coll.name == name:
                 del self._extensions[cid]
                 coll.drop()
+
 
 class DBCollection(object):
     """Abstract collection base."""
@@ -136,7 +139,7 @@ class DBCollection(object):
             constrain(criteria=criteria, mods=mods)
         if not is_admin:
             if not isinstance(criteria, dict):
-                criteria = {"_id": criteria}
+                criteria = {"id": criteria}
             if not all(self.find(criteria, only_cols=["mutable"])):
                 raise ConstraintViolation("not mutable", criteria=criteria, mods=mods)
 
@@ -152,7 +155,7 @@ class DBCollection(object):
         pass
 
     def replace_one(self, an_id, data):
-        self._coll.replace_one({"_id": an_id}, data)
+        self._coll.replace_one({"id": an_id}, data)
 
     def replace(self, object):
         id = object.pop("id")

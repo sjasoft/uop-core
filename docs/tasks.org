@@ -2,6 +2,8 @@
 * ACTIVE update async db_collection
 SCHEDULED: <2023-02-01 Wed>
 * Inbox
+** fix delete class
+basically class deletion unfortunately means that all its subclasses need to be deleted.  so in unit test of deleting class either make sure to only delete classes with no subclasses or make sure we aren't nuking other data in the same test function that blows up other things!  Shit.
 ** DONE cleanup changeset since database interaction is removed from it
 CLOSED: [2025-10-22 Wed 19:17] SCHEDULED: <2025-10-22 Wed>
 :LOGBOOK:

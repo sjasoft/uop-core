@@ -410,5 +410,13 @@ def context_to_schema_changeset(context: MetaContext, schema: Schema):
 
 def meta_context_schema_diff(context: MetaContext, a_schema):
     changes = ChangeSet()
-    context.gather_schema_changes(a_schema, changes)
+    working_context = context.deep_copy()
+    working_context.gather_schema_changes(a_schema, changes)
+    return changes
+
+
+def meta_context_schema_diff2(context: MetaContext, a_schema):
+    changes = ChangeSet()
+    context2 = MetaContext.from_schema(a_schema)
+    context.gather_context_changes(context2, changes)
     return changes

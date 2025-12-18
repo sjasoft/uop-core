@@ -35,6 +35,7 @@ class Database(base.Database):
         self._collections_complete = True
 
         await self.reload_metacontext()
+        self._known_schemas = await self.db_schema_names()
         for schema in self._mandatory_schemas:
             await self.ensure_schema(schema)
 
@@ -142,8 +143,13 @@ class Database(base.Database):
         extensions_to_remove = []
 
         async def delete_class(cls_id):
-            coll = self.extension(cls_id)
-            extensions_to_remove.append(coll.name)
+            cls = self.metacontext.classes.by_id.get(cls_id)
+            if cls:
+                coll_name = getattr(cls, base.cls_extension_field)
+                if coll_name:
+                    coll = self.collections.get(coll_name)
+                    if coll:
+                        await coll.drop()
             criteria = changeset.classes.deletion_criteria(cls_id)
             await self.collections.related.remove(criteria)
 
@@ -208,14 +214,14 @@ class Database(base.Database):
             for k, v in changes.modified.items():
                 await coll.update_one(k, v)
             for k in changes.deleted:
-                coll.remove(k)
+                await coll.remove(k)
                 await delete_completions[changes.kind](k)
 
         async def apply_related_changes(changes):
             for related in changes.inserted:
-                await self.collections.related.insert(**dict(related))
+                await self.collections.related.insert(**related.without_kind())
             for related in changes.deleted:
-                await self.collections.related.remove(dict(related))
+                await self.collections.related.remove(related.without_kind())
 
         await self.begin_transaction()
         for kind in base.crud_kinds:
@@ -224,7 +230,7 @@ class Database(base.Database):
         await apply_related_changes(changeset.related)
 
         for extension_name in extensions_to_remove:
-            self.collections.remove(extension_name)
+            self.collections.drop_extension(extension_name)
         await self.log_changes(changeset, tenant_id=self._tenant_id)
         await self.commit()
         await self.reload_metacontext()
@@ -235,17 +241,32 @@ class Database(base.Database):
     async def ensure_core_schema(self):
         await self.ensure_schema(meta.core_schema)
 
+    async def db_schema_names(self):
+        schemas_coll = self._collections.schemas
+        schema_data = await schemas_coll.find(only_cols=("name",))
+        return set(schema_data) if schema_data else set()
+
     async def ensure_schema(self, a_schema: meta.Schema):
-        if not await self.collections.schemas.find_one({"name": a_schema.name}):
+        if not a_schema.name in self._known_schemas:
             await self.add_schema(a_schema)
-        await self.ensure_schema_installed(a_schema)
+            await self.ensure_schema_installed(a_schema)
 
     async def ensure_schema_installed(self, a_schema):
+        for name in a_schema.requires_schemas:
+            if name not in self._known_schemas:
+                known = meta.known_schemas.get(name)
+                if known:
+                    await self.ensure_schema(known)
+                else:
+                    raise Exception(
+                        f"Schema {a_schema.name} requires missing schema {name}"
+                    )
         changes = changeset.meta_context_schema_diff(self.metacontext, a_schema)
         has_changes = changes.has_changes()
         if has_changes:
             await self.apply_changes(changes)
             await self.reload_metacontext()
+        self._known_schemas.add(a_schema.name)
         return has_changes, changes
 
     async def object_ok(self, object_id):
@@ -645,17 +666,17 @@ class Database(base.Database):
         return {}
 
     async def tag(self, oid, tag):
-        role_id = self.roles.by_name["tag_applies"]
+        role_id = self.role_id("tag_applies")
         return await self.relate(tag, role_id, oid)
 
     async def untag(self, oid, tagid):
-        role_id = self.roles.by_name["tag_applies"]
+        role_id = self.role_id("tag_applies")
         return await self.unrelate(tagid, role_id, oid)
 
     # Grousp
 
     async def get_groupset(self, group_id, recursive=False):
-        role_id = self.roles.by_name["group_contains"]
+        role_id = self.role_id("group_contains")
         groups = set(group_id)
         if recursive:
             groups.update(await self.groups_in_group(group_id))
@@ -665,7 +686,7 @@ class Database(base.Database):
     async def modify_group_objects(
         self, group_id, object_ids, do_replace=False, reverse=True
     ):
-        role_id = self.roles.by_name["group_contains"]
+        role_id = self.role_id("group_contains")
         return await self.modify_associated_with_role(
             role_id, group_id, object_ids, do_replace=do_replace, reverse=reverse
         )
@@ -715,13 +736,13 @@ class Database(base.Database):
         return base.reduce(lambda a, b: a | b, sets, set())
 
     async def group(self, oid, group_id):
-        role_name = "group_contains" if self.object_ok(oid) else "contains_group"
-        role_id = self.roles.by_name[role_name]
+        role_name = "group_contains" if await self.object_ok(oid) else "contains_group"
+        role_id = self.role_id(role_name)
         return await self.relate(group_id, role_id, oid)
 
     async def ungroup(self, oid, group_id):
-        role_name = "group_contains" if self.object_ok(oid) else "contains_group"
-        role_id = self.roles.by_name[role_name]
+        role_name = "group_contains" if await self.object_ok(oid) else "contains_group"
+        role_id = self.role_id(role_name)
         return await self.unrelate(group_id, role_id, oid)
 
     # Roles
