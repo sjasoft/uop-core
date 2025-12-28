@@ -414,7 +414,7 @@ class Database(object):
 
     def db_schema_names(self):
         schemas_coll = self._collections.schemas
-        schemas = set(schemas_coll.find(only_cols=("name",)))
+        return set(schemas_coll.find(only_cols=("name",))) or set()
 
     def _db_has_collection(self, name):
         return False

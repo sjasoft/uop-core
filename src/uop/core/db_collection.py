@@ -125,32 +125,6 @@ class DBCollection(object):
     def add_constraints(self, *constraints):
         self._constraints.extend(constraints)
 
-    def _filter_constraints(self, kind, is_admin):
-        relevant = lambda constraint: kind in constraint.relevant_to
-        not_admin_ok = lambda constraint: not (is_admin and constraint._admin_ok)
-        return [x for x in self._constraints if relevant(x) and not_admin_ok(x)]
-
-    def constrain_insert(self, data, is_admin=False, **other):
-        for constrain in self._filter_constraints("insert", is_admin):
-            constrain(data)
-
-    def constrain_modify(self, criteria, mods, is_admin=False, **other):
-        for constrain in self._filter_constraints("modify", is_admin):
-            constrain(criteria=criteria, mods=mods)
-        if not is_admin:
-            if not isinstance(criteria, dict):
-                criteria = {"id": criteria}
-            if not all(self.find(criteria, only_cols=["mutable"])):
-                raise ConstraintViolation("not mutable", criteria=criteria, mods=mods)
-
-    def constrain_delete(self, criteria, is_admin=False, **other):
-        for constrain in self._filter_constraints("delete", is_admin):
-            constrain(criteria=criteria)
-        if not is_admin:
-            obj = self.get(criteria)
-            if obj and not obj.get("mutable"):
-                raise ConstraintViolation("cannot delete", criteria)
-
     def update(self, selector, mods, partial=True):
         pass
 
