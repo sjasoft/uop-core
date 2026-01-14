@@ -3,8 +3,6 @@ from uop.core.connect import generic
 from uop.meta import oid
 from uop.meta.schemas import meta
 from functools import reduce
-from collections import defaultdict
-import asyncio
 
 
 def register_adaptor(db_class, db_type, is_async=False):
@@ -14,50 +12,18 @@ def register_adaptor(db_class, db_type, is_async=False):
 class ConnectionWrapper:
     def __init__(self, connect: generic.GenericConnection = None):
         self._connect = connect
-        self._metacontext = None
-        self.reset_context()
 
     def set_connection(self, connect: generic.GenericConnection):
         self._connect = connect
-        self.reset_context()
-
-    def all_names(self, kind):
-        return list(self.name_to_id(kind).keys())
 
     def abort(self):
         self._connect.abort()
-        self.reset_context()
-
-    def attr_name_map(self, disambiguated=True):
-        attrs = self.id_map("attributes").values()
-        cid_map = self.id_map("classes")
-        attr_classes = defaultdict(set)
-        for cls in cid_map.values():
-            name = cls.name
-            for aid in cls.attrs:
-                attr_classes[aid].add(name)
-        by_name = {}
-        for attr in attrs:
-            name = attr.name
-            type = attr.type
-            prev = by_name.get(name)
-            if prev:
-                if type != prev.type:
-                    if disambiguated:
-                        classes = attr_classes[attr.id]
-                        extra = classes[0] if classes else "Unknown"
-                        key = f"{name}({extra})"
-                        by_name[key] = attr
-            else:
-                by_name[name] = attr
-
-        return by_name
 
     def begin_transaction(self):
         self._connect.begin_transaction()
 
     def class_named(self, name):
-        return self._metacontext.classes.by_name.get(name)
+        return self._connect.metacontext().classes.by_name.get(name)
 
     def __getattr__(self, name):
         return getattr(self._connect, name, None)
@@ -67,11 +33,10 @@ class ConnectionWrapper:
 
     def commit(self):
         self._connect.commit()
-        self.reset_context()
 
     def get_dataset(self, num_assocs=3, num_instances=10, persist_to=None):
         # assume metacontext is complete
-        data = meta.WorkingContext.from_metadata(self._metacontext)
+        data = meta.WorkingContext.from_metadata(self._connect.metacontext())
         data.configure(
             num_assocs=num_assocs, num_instances=num_instances, persist_to=persist_to
         )
@@ -92,28 +57,16 @@ class ConnectionWrapper:
     def get_db_method(self, name):
         return getattr(self, name)
 
-    def get_named_role(self, name):
-        role = self.name_map("roles").get(name)
-        if not role:
-            for role in self.roles():
-                if role.reverse_name == name:
-                    return role
-        return role
-
     def get_role_named(self, name):
-        self._metacontext.get_meta_named("roles", name)
+        return self._connect.metacontext().get_meta_named("roles", name)
 
     def meta_map(self):
-        data = self._metacontext.__dict__
+        data = self._connect.metacontext().__dict__
         kinds = {k: v for k, v in data.items() if isinstance(v, meta.ByNameId)}
         return {k: v.by_id for k, v in kinds.items()}
 
     def metacontext(self):
-        return self._metacontext
-
-    def non_abstract_classes(self):
-        raw = self.by_name("classes")
-        return {k: v for k, v in raw.items() if not v.is_abstract}
+        return self._connect.metacontext()
 
     def object_attributes(self, obj_id):
         _cls = self.object_class(obj_id)
@@ -131,22 +84,8 @@ class ConnectionWrapper:
         short = self.dbi.oid_short_form(obj_id)
         return dict(short_form=short, class_name=cname)
 
-    def reverse_relation(self, rel_assoc):
-        oid, name, other = rel_assoc
-        role = self.get_named_role(name)
-        if not role:
-            raise Exception(f"no role found for {rel_assoc}")
-        if name == role.name:
-            return other, role.reverse_name, oid
-        else:
-            return other, role.name, oid
-
     def reverse_role_names(self):
         return [r.reverse_name for r in self.roles()]
-
-    def reset_context(self):
-        if self._connect:
-            self._metacontext = self._connect.metacontext()
 
     def roles(self):
         return self.name_map("roles").values()
@@ -156,7 +95,7 @@ class ConnectionWrapper:
         return {r: getter(r) for r in rids}
 
     def subgroups(self, gid):
-        return self._metacontext.subgroups(gid)
+        return self._connect.metacontext().subgroups(gid)
 
     def untag(self, oid, tag_id):
         self._connect.untag(oid, tag_id)
@@ -171,19 +110,19 @@ class ConnectionWrapper:
         return self.dbi.object_for_url(url, True)
 
     def name_map(self, kind):
-        return self._metacontext.by_name(kind)
+        return self._connect.metacontext().by_name(kind)
 
     def id_map(self, kind):
-        return self._metacontext.by_id(kind)
+        return self._connect.metacontext().by_id(kind)
 
     def id_to_name(self, kind):
-        return self._metacontext.id_to_name(kind)
+        return self._connect.metacontext().id_to_name(kind)
 
     def names_from_ids(self, kind, *ids):
-        return self._metacontext.names_to_ids(kind)(ids)
+        return self._connect.metacontext().names_to_ids(kind)(ids)
 
     def name_to_id(self, kind):
-        return self._metacontext.name_to_id(kind)
+        return self._connect.metacontext().name_to_id(kind)
 
     def neighbor_text_form(self, kind, neighbor_dict):
         """

@@ -2,6 +2,67 @@
 * ACTIVE update async db_collection
 SCHEDULED: <2023-02-01 Wed>
 * Inbox
+** TODO fix the transactions/nested transaction mess
+*** Solution elements
+**** Four methods for transaction support
+***** start_long_transaction
+Does what is necessary to start an actual transaction in the database adaptor then calls the super().start_long_transaction
+***** end_long_transaction
+Does what is necessarry to end the actual transaction in the database adaptor then calls super().end_long_transaction
+***** db_commit
+Does what is needed to commit the actual transaction in the database
+***** db_abort
+Does what is needed to abort the actual transaction in the database
+**** Implementation
+***** DONE main sync db setup
+***** TODO main async equivalent
+***** DONE sqlalchemy sync support
+CLOSED: [2026-01-06 Tue 15:08]
+:LOGBOOK:
+- State "DONE"       from "TODO"       [2026-01-06 Tue 15:08]
+:END:
+***** TODO sqlalcmemy async support
+***** DONE sql dbapi sync support
+CLOSED: [2026-01-06 Tue 15:08]
+:LOGBOOK:
+- State "DONE"       from "TODO"       [2026-01-06 Tue 15:08]
+:END:
+***** TODO sql dbapi async support
+***** DONE mongo sync support
+CLOSED: [2026-01-06 Tue 15:07]
+:LOGBOOK:
+- State "DONE"       from "TODO"       [2026-01-06 Tue 15:07]
+:END:
+***** DONE mongo async support
+CLOSED: [2026-01-06 Tue 16:01]
+:LOGBOOK:
+- State "DONE"       from "TODO"       [2026-01-06 Tue 16:01]
+:END:
+
+*** True transaction should only happen at outermost
+*** Only outermost commit/abort should do true commit/abort
+*** Operations that mutate data by default create temp changeset, apply and commit
+**** must take care we do not create nesting by forcing this apply_changes which begins transaction
+Perhaps we should never check or do anything with changeset at true commit time. But this would say transactions are not useful outside UOP internals as user transaction could cause internal transactions to mutate database what should not commit until the outer transaction.
+But this is dangerous because of the metacontext which is a defacto cache of changes to the database!  Currently metacontext is only updated on committed write to db.
+
+*** THERE IS A BIG PROBLEM BREWING HERE!  Or is there?
+
+**** No transaction auto apply-to-db
+Can make transaction and commit it and all is well and metacontext updates
+**** In transaction
+Updates do not apply to db until end of outer transaction.  But this means within user created transaction they are working with stale metacontext. Is this as it should be?
+
+**** IDEA
+Explore doing an explicit with connection around the apply_to_db and explicit reload_context within it regardless of external/user transactions? Roughly equivalent to making meta object changes in particular always autocommit.
+Other idea is to update metacontext if in long transaction for meta changes.
+
+Actually I think the best thing is to not start a transaction in apply_changes if there already is one.  This gets rid of recursive commit nonsense.   And apply_changes is not called by mutators if there is an active transaction because then a _changeset was already active.  So the main worrying case does not occur.
+
+
+**** How will I write a test for this once I decide what correct behavior is?
+*** need clear outer transactions knowledge / manipulation
+*** abort is always abort even if in nested transaction
 ** finish index creation
 *** TODO create test of index creation/removal
 *** TODO add to sqlalchemy

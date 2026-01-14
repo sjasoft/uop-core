@@ -88,8 +88,9 @@ class Database(object):
     def existing_db_names(cls):
         return []
 
-    def __init__(self, *schemas, tenant_id="", **dbcredentials):
+    def __init__(self, dbname, *schemas, tenant_id="", **dbcredentials):
         self._credentials = dbcredentials
+        self._dbname = dbname
         self._collections: db_coll.DatabaseCollections = None
         self._long_txn_start = 0
         self._tenants = None
@@ -323,42 +324,39 @@ class Database(object):
             self.commit()
 
     def start_long_transaction(self):
-        pass
+        self._changeset = changeset.ChangeSet()
 
     def end_long_transaction(self):
         self._long_txn_start = 0
         self._changeset = None
-
-    def begin_transaction(self):
-        if not self._changeset:
-            self._changeset = changeset.ChangeSet()
-        in_txn = self.in_long_transaction
-        self._long_txn_start += 1
-        if not in_txn:
-            self.start_long_transaction()
-
-    def abort(self):
-        self.end_transaction()
-
-    def end_transaction(self):
-        if self._changeset:
-            self._changeset = None
-            self.end_long_transaction()
-
-    def commit(self):
-        if self._changeset:
-            self.apply_changes(self._changeset)
-        self.end_transaction()
         self.reload_metacontext()
 
-    def really_commit(self):
+    def begin_transaction(self):
+        if not self.in_long_transaction:
+            self.start_long_transaction()
+        self._long_txn_start += 1
+
+    def abort(self):
+        self.db_abort()
+        self.end_long_transaction()
+
+    def db_commit(self):
         pass
+
+    def db_abort(self):
+        pass
+
+    def really_commit(self):
+        if self._changeset:
+            self.apply_changes(self._changeset)
+        self.db_commit()
+        self.end_long_transaction()
 
     def commit(self):
         if self.in_outer_transaction():
             self.really_commit()
-            self.end_long_transaction()
-        self.close_current_transaction()
+        else:
+            self.close_current_transaction()
 
     def in_outer_transaction(self):
         return self._long_txn_start == 1
@@ -541,7 +539,9 @@ class Database(object):
             for related in changes.deleted:
                 self.collections.related.remove(dict(related))
 
-        self.begin_transaction()
+        do_transaction = not self.in_long_transaction
+        if do_transaction:
+            self.begin_transaction()
         for kind in crud_kinds:
             fn = apply_object_changes if kind == "objects" else apply_meta_changes
             fn(getattr(changeset, kind))
@@ -552,8 +552,10 @@ class Database(object):
             if coll:
                 coll.drop()
         self.log_changes(changeset)
-        self.commit()
-        self.reload_metacontext()
+        changeset.clear()
+        self._changeset = None
+        if do_transaction:
+            self.commit()
 
     # Basic CRUD
 

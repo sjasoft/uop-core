@@ -207,3 +207,69 @@ class GenericConnection():
 
     def id_map(self, kind):
         return {}
+
+    def all_names(self, kind):
+        """Get all names of a given metadata kind."""
+        return list(self.name_to_id(kind).keys())
+
+    def attr_name_map(self, disambiguated=True):
+        """
+        Build a map of attribute names to attribute objects.
+        If disambiguated=True, handles name collisions across classes
+        by appending class name.
+        """
+        from collections import defaultdict
+
+        attrs = self.id_map("attributes").values()
+        cid_map = self.id_map("classes")
+        attr_classes = defaultdict(set)
+        for cls in cid_map.values():
+            name = cls.name
+            for aid in cls.attrs:
+                attr_classes[aid].add(name)
+        by_name = {}
+        for attr in attrs:
+            name = attr.name
+            type = attr.type
+            prev = by_name.get(name)
+            if prev:
+                if type != prev.type:
+                    if disambiguated:
+                        classes = attr_classes[attr.id]
+                        extra = classes[0] if classes else "Unknown"
+                        key = f"{name}({extra})"
+                        by_name[key] = attr
+            else:
+                by_name[name] = attr
+
+        return by_name
+
+    def get_named_role(self, name):
+        """
+        Get a role by name, checking both forward and reverse names.
+        """
+        role = self.name_map("roles").get(name)
+        if not role:
+            for role in self.get_roles():
+                if hasattr(role, 'reverse_name') and role.reverse_name == name:
+                    return role
+        return role
+
+    def reverse_relation(self, rel_assoc):
+        """
+        Reverse a relationship association tuple (oid, name, other).
+        Returns (other, reverse_name, oid).
+        """
+        oid, name, other = rel_assoc
+        role = self.get_named_role(name)
+        if not role:
+            raise Exception(f"no role found for {rel_assoc}")
+        if name == role.name:
+            return other, role.reverse_name, oid
+        else:
+            return other, role.name, oid
+
+    def non_abstract_classes(self):
+        """Get all non-abstract classes as name->class dict."""
+        raw = self.name_map("classes")
+        return {k: v for k, v in raw.items() if not getattr(v, 'is_abstract', False)}
