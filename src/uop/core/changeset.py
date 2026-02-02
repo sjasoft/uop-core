@@ -183,9 +183,12 @@ class CrudChanges(ChangeSetComponent):
         else:
             self.modified[identifier] = data
         return None
+    
+    def standardized_data(self, data):
+        return data
 
     def insert(self, data):
-        self.inserted[get_id(data)] = data
+        self.inserted[get_id(data)] = self.standardized_data(data)
 
     def to_dict(self):
         return dict(
@@ -282,6 +285,8 @@ class ClassChanges(CrudChanges):
         in_changeset.objects.delete_class(identifier)
         in_changeset.related.delete_class(identifier)
 
+    def standardized_data(self, data):
+        return data
 
 class AttributeChanges(CrudChanges):
     kind = "attributes"

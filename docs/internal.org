@@ -241,8 +241,6 @@ For users to have permissions they must be associated with one or more Roles.
 Another way some of this functionality gets handled in web based apps is by different auth information in headers on requests to such a system.  But logitally that different auth information maps to implicit or explicit roles.  
 
 
-*** TODO figure out precisely what auth mechanisms to use. 
-    SCHEDULED: <2021-04-10 Sat>
 
 
 ** Schema[s]
@@ -338,8 +336,7 @@ There are multiple databases in the session.
 
 In case 1,  it is clear that the persistent source and sink for the metadata is the active database.  So it would be convenient if the database kept the database map. Case 2 at first looks quite different, as if somehow the metadata map is separate from all databases but perhaps is used by all of them for both source and sink.    How can this at first seemingly different situation be resolved?  The most consistent way leading to high use is by creating a CompositeDatabase type that acts like a single database to most of the code but within itself pulls metadata and other information from several sources and distributes changes to that information.  
 So in both cases we get to an internally consistent implementation model where there is only one active database for a session and it owns the session metadata.  
-**** Caching
-UOP caches as much as possible.  Persistence needs today range all the way from mobile single app support to desktop multiple app support to networked machine support to cloud.   
+
 
 UOP enables full object persistence across all these domains.  It enables connecting a mobile app directly to the cloud for backup with the mobile app acting as a cache for the cloud data effectively.  It supports multi-threaded process apps with local in memory caching or shared memory caching as well as disk (backend datastore) on the machine.  The local disk (if any) is a logical cache of the cloud backed data.   Changes write through as many layers of "cache" as are connected.  Requests for objects not present are forwarded to the next layer until the object is found and retrieved or there are no more layers to check.
 

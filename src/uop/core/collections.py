@@ -3,7 +3,6 @@ cls_extension_field = 'instance_collection'
 uop_collection_names = dict(
     tags='uop_tags',
     classes='uop_classes',
-    attributes='uop_attrs',
     roles='uop_roles',
     groups='uop_groups',
     queries='uop_queries',
@@ -15,7 +14,7 @@ uop_collection_names = dict(
     users='uop_users',
 )
 
-crud_kinds = ['objects', 'classes', 'attributes', 'roles', 'tags',
+crud_kinds = ['objects', 'classes', 'roles', 'tags',
               'groups', 'queries']
 meta_kinds = crud_kinds[1:]  # TODO reconsider queries which are mixed!
 internal_kinds = ['database', 'tenants', 'schemas', 'users', 'applications', 'application_tenants']

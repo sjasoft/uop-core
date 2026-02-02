@@ -27,6 +27,7 @@ from uop.core.collections import (
     crud_kinds,
     cls_extension_field,
 )
+from uop.meta.schemas import schema_store
 from uop.core import changeset
 from sjasoft.web.url import is_url
 from sjasoft.utils.tools import match_fields
@@ -101,6 +102,7 @@ class Database(object):
         self._changeset: changeset.ChangeSet = None
         self._known_schemas = set()
         self._mandatory_schemas = schemas
+        self._schema_store = schema_store.SchemaStore()
 
     @property
     def metacontext(self):
@@ -256,7 +258,7 @@ class Database(object):
         :param a_schema: a Schema
         :return: None
         """
-        self._collections.schemas.insert(**a_schema.dict())
+        self._collections.schemas.insert(**a_schema.to_db_dict())
 
     # Tenants and Users
 
@@ -346,6 +348,14 @@ class Database(object):
     def db_abort(self):
         pass
 
+    @property
+    def db_user(self):
+        return self._credentials.get("user") or self._credentials.get("username")
+
+    @property
+    def db_password(self):
+        return self._credentials.get("password")
+
     def really_commit(self):
         if self._changeset:
             self.apply_changes(self._changeset)
@@ -368,26 +378,22 @@ class Database(object):
     def get_collection(self, collection_name):
         return self.collections.get(collection_name)
 
-    def ensure_schema(self, a_schema: meta.Schema):
-        if a_schema.name not in self._known_schemas:
-            self.add_schema(a_schema)
+    def ensure_schema(self, schema_name:str):
+        if schema_name not in self._known_schemas:
+            a_schema = self._schema_store.schema_named(schema_name)
+            if not a_schema:
+                raise Exception(f"No such schema {schema_name} in schema store")    
+            for dep_name in a_schema.requires_schemas:
+                    self.ensure_schema(dep_name)
             self.ensure_schema_installed(a_schema)
 
     def ensure_schema_installed(self, a_schema):
-        for name in a_schema.requires_schemas:
-            if name not in self._known_schemas:
-                known = meta.known_schemas.get(name)
-                if known:
-                    self.ensure_schema(known)
-                else:
-                    raise Exception(
-                        f"Schema {a_schema.name} requires missing schema {name}"
-                    )
         changes = changeset.meta_context_schema_diff(self.metacontext, a_schema)
         has_changes = changes.has_changes()
         if has_changes:
             self.apply_changes(changes)
             self.reload_metacontext()
+        self.add_schema(a_schema)
         self._known_schemas.add(a_schema.name)
 
     def open_db(self, setup=None):
@@ -406,9 +412,8 @@ class Database(object):
         self._collections_complete = True
         self.reload_metacontext()
         self._known_schemas = self.db_schema_names()
-        self.ensure_schema(meta.core_schema)
-        for schema in self._mandatory_schemas:
-            self.ensure_schema(schema)
+        for schema_name in self._mandatory_schemas:
+            self.ensure_schema(schema_name)
 
     def db_schema_names(self):
         schemas_coll = self._collections.schemas
@@ -456,6 +461,36 @@ class Database(object):
 
     def apply_changes(self, changeset):
         extensions_to_remove = []
+
+        def get_all_class_attributes():
+            res = dict()
+            attr_set = set()
+            for cid, cls in changeset.classes.inserted.items():
+                for attr in cls["attributes"]:
+                    a_id = attr["id"]
+                    if a_id not in res:
+                        res[a_id] = attr
+                    else:
+                        print("duplicate attribute id:", a_id, attr, res[a_id])
+            return res
+
+        def fix_attributes():
+            c_attrs = changeset.attributes.inserted
+            cls_attributes = {
+                c["id"]: c["attributes"] for c in changeset.classes.inserted.values()
+            }
+            by_id = self.by_id("attributes")
+            c_inserted = changeset.classes.inserted
+            insert_dict = changeset.attributes.inserted
+            for c, attributes in cls_attributes.items():
+                cls = c_inserted[c]
+                for a in attributes:
+                    a_id = a["id"]
+                    if a_id in by_id:
+                        continue
+                    if a_id not in c_attrs:
+                        insert_dict[a_id] = a
+                cls["attributes"] = []
 
         def delete_class(cls_id):
             cls = self.metacontext.classes.by_id.get(cls_id)
@@ -525,7 +560,12 @@ class Database(object):
         def apply_meta_changes(changes):
             coll = getattr(self.collections, changes.kind)
             for k, v in changes.inserted.items():
+                if "kind" in v:
+                    print("what the hell?")
                 coll.insert(**v)
+                present = coll.get(k)
+                if not present:
+                    print("what the hell?", present, v)
             for k, v in changes.modified.items():
                 coll.update_one(k, v)
             for k in changes.deleted:
@@ -539,6 +579,7 @@ class Database(object):
             for related in changes.deleted:
                 self.collections.related.remove(dict(related))
 
+        # fix_attributes()
         do_transaction = not self.in_long_transaction
         if do_transaction:
             self.begin_transaction()
@@ -1106,9 +1147,9 @@ class Database(object):
     # Chngeset modifiers
 
     def meta_insert(self, obj):
+        kind = getattr(obj, 'kind','objects')
         with self.changes() as chng:
             data = as_dict(obj)
-            kind = data.pop("kind", "objects")
             chng.insert(kind, data)
         return obj
 
